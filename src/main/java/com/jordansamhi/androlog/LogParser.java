@@ -20,6 +20,7 @@ public class LogParser {
     private final Set<String> visitedServices = new HashSet<>();
     private final Set<String> visitedBroadcastReceivers = new HashSet<>();
     private final Set<String> visitedContentProviders = new HashSet<>();
+    private final Set<String> visitedBranches = new HashSet<>();
 
     public LogParser(String logIdentifier, SummaryBuilder summaryBuilder) {
         this.logIdentifier = logIdentifier;
@@ -51,6 +52,10 @@ public class LogParser {
                     case "content-providers":
                         visitedContentProviders.add(component.substring(logType.length()));
                         break;
+                    case "branches":
+                        firstPipe = component.indexOf('|');
+                        visitedBranches.add(component.substring(logType.length(),firstPipe));
+                        break;
                 }
             }
         }
@@ -58,7 +63,7 @@ public class LogParser {
 
     private static String getType(String component) {
         String logType = null;
-        String[] logTypes = {"statements", "methods", "classes", "activities", "services", "broadcast-receivers"};
+        String[] logTypes = {"statements", "methods", "classes", "activities", "services", "broadcast-receivers", "branches"};
         for (String lt : logTypes) {
             if (component.startsWith(lt)) {
                 logType = lt;
@@ -90,6 +95,13 @@ public class LogParser {
                     int firstPipe = line.indexOf('|');
                     if (visitedStatements.contains(line.substring(logIndex, firstPipe))) {
                         summaryLogBuilder.incrementStatement(line);
+                    }
+                    break;
+                case "BRANCH":
+                    logIndex = line.indexOf(logType + "=");
+                    firstPipe = line.indexOf('|');
+                    if (visitedBranches.contains(line.substring(logIndex, firstPipe))) {
+                        summaryLogBuilder.incrementBranch(line);
                     }
                     break;
                 case "METHOD":

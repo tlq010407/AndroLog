@@ -1,0 +1,17 @@
+AndroLog v0.1 started on Tue Feb 24 11:28:57 SGT 2026
+
+[*] Setting up environment...
+[*] No thread count specified. Using Soot's default thread configuration.
+[✓] Done.
+[*] Generating Code Coverage Report...
+
+=== Coverage Summary ===
+------------------------
+methods             :   5.1% (1187/23426) 
+activities          :   9.1% (1/11) 
+classes             :  10.0% (369/3684) 
+content-providers   :   0.0% (0/1) 
+services            :   0.0% (0/9) 
+broadcast-receivers :   0.0% (0/4) 
+------------------------
+[✓] Done.

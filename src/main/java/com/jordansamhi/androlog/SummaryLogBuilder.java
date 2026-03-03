@@ -104,6 +104,15 @@ public class SummaryLogBuilder {
     }
 
     /**
+     * Increments the count of logged branches.
+     *
+     * @param branch The branch to be logged.
+     */
+    public void incrementBranch(String branch) {
+        incrementComponent("branches", branch);
+    }
+
+    /**
      * Increments the count for a specific component type and component name.
      * Ensures that each unique component is only counted once.
      *

@@ -1,0 +1,6 @@
+AndroLog v0.1 started on Tue Feb 24 17:46:57 SGT 2026
+
+[*] Setting up environment...
+[*] No thread count specified. Using Soot's default thread configuration.
+[✓] Done.
+[*] Generating Code Coverage Report...

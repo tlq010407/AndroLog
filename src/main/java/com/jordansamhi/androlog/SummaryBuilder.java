@@ -182,6 +182,37 @@ public class SummaryBuilder {
     }
 
     /**
+     * Adds a transformation to gather branch information (if and switch statements).
+     */
+    private void getInfoBranches(boolean includeLibraries) {
+        addTransformation("jtp.branches", b -> {
+            if (this.isLogCheckerClass(b.getMethod())) {
+                return;
+            }
+            if (!includeLibraries && LibrariesManager.v().isLibrary(b.getMethod().getDeclaringClass())) {
+                return;
+            }
+            Chain<Unit> units = b.getUnits();
+            int branchCnt = 0;
+            for (Unit u : units) {
+                Stmt stmt = (Stmt) u;
+                if (stmt instanceof IfStmt) {
+                    branchCnt++;
+                    String branch_log = String.format("BRANCH=%s|IF|%d", b.getMethod(), branchCnt);
+                    incrementComponent("branches", branch_log);
+                } else if (stmt instanceof SwitchStmt) {
+                    SwitchStmt switchStmt = (SwitchStmt) stmt;
+                    for (int i = 0; i < switchStmt.getTargets().size(); i++) {
+                        branchCnt++;
+                        String branch_log = String.format("BRANCH=%s|SWITCH|%d", b.getMethod(), branchCnt);
+                        incrementComponent("branches", branch_log);
+                    }
+                }
+            }
+        });
+    }
+
+    /**
      * Executes all transformation phases to build the summary.
      */
     public void build(boolean includeLibraries) {
@@ -196,6 +227,9 @@ public class SummaryBuilder {
         }
         if (CommandLineOptions.v().hasOption("s")) {
             getInfoStatements(includeLibraries);
+        }
+        if (CommandLineOptions.v().hasOption("b")) {
+            getInfoBranches(includeLibraries);
         }
         PackManager.v().runPacks();
     }

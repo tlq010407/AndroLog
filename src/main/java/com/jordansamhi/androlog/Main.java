@@ -30,6 +30,7 @@ public class Main {
         options.addOption(new CommandLineOption("classes", "c", "Log classes", false, false));
         options.addOption(new CommandLineOption("methods", "m", "Log methods", false, false));
         options.addOption(new CommandLineOption("statements", "s", "Log statements", false, false));
+        options.addOption(new CommandLineOption("branches", "b", "Log branches (if/switch)", false, false));
         options.addOption(new CommandLineOption("components", "cp", "Log Android components", false, false));
         options.addOption(new CommandLineOption("non-libraries", "n", "Whether to include libraries (by default: include libraries)", false, false));
         options.addOption(new CommandLineOption("package", "pkg", "Package name that will exclusively be instrumented", true, false));
@@ -96,11 +97,15 @@ public class Main {
         } else {
             Writer.v().pinfo("Instrumentation in progress...");
             Logger.v().setTargetPackage(packageName);
+            BranchLogger.v().setTargetPackage(packageName);
             if (CommandLineOptions.v().hasOption("mc")) {
                 Logger.v().logAllMethodCalls(logIdentifier, includeLibraries);
             }
             if (CommandLineOptions.v().hasOption("s")) {
                 Logger.v().logAllStatements(logIdentifier, includeLibraries);
+            }
+            if (CommandLineOptions.v().hasOption("b")) {
+                BranchLogger.v().logAllBranches(logIdentifier, includeLibraries);
             }
             if (CommandLineOptions.v().hasOption("m")) {
                 Logger.v().logAllMethods(logIdentifier, includeLibraries);
