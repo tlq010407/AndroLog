@@ -9,8 +9,10 @@ import com.jordansamhi.androspecter.instrumentation.Logger;
 import com.jordansamhi.androspecter.printers.Writer;
 import soot.options.Options;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.Date;
 import java.util.Optional;
 
@@ -32,6 +34,7 @@ public class Main {
         options.addOption(new CommandLineOption("statements", "s", "Log statements", false, false));
         options.addOption(new CommandLineOption("branches", "b", "Log branches (if/switch)", false, false));
         options.addOption(new CommandLineOption("components", "cp", "Log Android components", false, false));
+        options.addOption(new CommandLineOption("no-rewrite", "nr", "Skip Soot rewrite and copy original APK to output", false, false));
         options.addOption(new CommandLineOption("non-libraries", "n", "Whether to include libraries (by default: include libraries)", false, false));
         options.addOption(new CommandLineOption("package", "pkg", "Package name that will exclusively be instrumented", true, false));
         options.addOption(new CommandLineOption("method-calls", "mc", "Log method calls (e.g., a()-->b())", false, false));
@@ -95,6 +98,20 @@ public class Main {
                 Writer.v().psuccess("Done.");
             }
         } else {
+            boolean noRewrite = CommandLineOptions.v().hasOption("nr");
+            boolean hasInstrumentation = isInstrumentationRequested();
+
+            if (noRewrite || !hasInstrumentation) {
+                if (noRewrite) {
+                    Writer.v().pinfo("No-rewrite mode enabled. Copying original APK to output.");
+                } else {
+                    Writer.v().pinfo("No instrumentation flags selected. Skipping rewrite and copying original APK to output.");
+                }
+                copyOriginalApkToOutput(CommandLineOptions.v().getOptionValue("apk"), outputApk);
+                Writer.v().psuccess(String.format("APK copied to: %s", outputApk));
+                return;
+            }
+
             Writer.v().pinfo("Instrumentation in progress...");
             Logger.v().setTargetPackage(packageName);
             BranchLogger.v().setTargetPackage(packageName);
@@ -132,6 +149,28 @@ public class Main {
             Writer.v().psuccess("Done.");
 
             Writer.v().pinfo("The apk is now instrumented, install it and execute it to generate logs.");
+        }
+    }
+
+    private static boolean isInstrumentationRequested() {
+        return CommandLineOptions.v().hasOption("mc")
+                || CommandLineOptions.v().hasOption("s")
+                || CommandLineOptions.v().hasOption("b")
+                || CommandLineOptions.v().hasOption("m")
+                || CommandLineOptions.v().hasOption("c")
+                || CommandLineOptions.v().hasOption("cp");
+    }
+
+    private static void copyOriginalApkToOutput(String sourceApkPath, String outputDir) {
+        try {
+            Path sourcePath = Paths.get(sourceApkPath);
+            Path outputDirectoryPath = Paths.get(outputDir);
+            Files.createDirectories(outputDirectoryPath);
+            Path targetPath = outputDirectoryPath.resolve(sourcePath.getFileName());
+            Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            Writer.v().perror("Problem while copying original APK: " + e.getMessage());
+            System.exit(1);
         }
     }
 

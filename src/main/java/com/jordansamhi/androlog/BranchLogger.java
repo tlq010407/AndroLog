@@ -141,30 +141,22 @@ public class BranchLogger {
 
         try {
             Jimple jimple = Jimple.v();
-            
-            // Create local for message
-            Local msgLocal = jimple.newLocal("_branch_log_" + System.nanoTime(), RefType.v("java.lang.String"));
-            b.getLocals().add(msgLocal);
-            
-            // Create assignment: msgLocal = message
-            AssignStmt assign = jimple.newAssignStmt(msgLocal, StringConstant.v(message));
-            
+
             // Create Log.d() call
             SootClass logClass = Scene.v().getSootClass("android.util.Log");
             SootMethod logMethod = logClass.getMethod("int d(java.lang.String,java.lang.String)");
-            
+
             // Create arguments
             java.util.List<Value> args = new java.util.ArrayList<>();
             args.add(StringConstant.v(tagToLog));
-            args.add(msgLocal);
-            
+            args.add(StringConstant.v(message));
+
             // Create invoke statement
             InvokeExpr expr = jimple.newStaticInvokeExpr(logMethod.makeRef(), args);
             InvokeStmt invoke = jimple.newInvokeStmt(expr);
-            
+
             // Insert before next unit
-            units.insertBefore(assign, nextUnit);
-            units.insertAfter(invoke, assign);
+            units.insertBefore(invoke, nextUnit);
         } catch (Exception e) {
             // Silently fail if Log class unavailable
         }

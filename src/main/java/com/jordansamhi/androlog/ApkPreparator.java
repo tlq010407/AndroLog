@@ -38,13 +38,23 @@ public class ApkPreparator {
             Writer.v().perror("Problem with config file.");
         }
 
-        this.apksignerPath = props.getProperty("apksignerPath");
-        this.zipalignPath = props.getProperty("zipalignPath");
+        String resolvedApkSignerPath = props.getProperty("apksignerPath");
+        String resolvedZipalignPath = props.getProperty("zipalignPath");
+
+        if (resolvedApkSignerPath == null || resolvedApkSignerPath.isBlank()) {
+            resolvedApkSignerPath = props.getProperty("apksigner");
+        }
+        if (resolvedZipalignPath == null || resolvedZipalignPath.isBlank()) {
+            resolvedZipalignPath = props.getProperty("zipalign");
+        }
+
+        this.apksignerPath = resolvedApkSignerPath;
+        this.zipalignPath = resolvedZipalignPath;
     }
 
     /**
-     * Prepares the APK by signing and aligning it.
-     * The original APK is replaced by the signed and aligned version.
+     * Prepares the APK by aligning, normalizing manifest split attributes, and signing.
+     * The original APK is replaced by the processed version at each step.
      */
     public void prepareApk() {
         String signedApkPath = apkPath.replace(".apk", "_signed.apk");
@@ -53,8 +63,64 @@ public class ApkPreparator {
         alignApk(alignedApkPath);
         replaceOriginalApk(alignedApkPath);
 
+        removeSplitAttributes();
+
         signApk(signedApkPath);
         replaceOriginalApk(signedApkPath);
+    }
+
+    /**
+     * Removes split-related attributes that can make a re-packed single APK be interpreted
+     * as a base split package and fail with INSTALL_FAILED_MISSING_SPLIT.
+     */
+    private void removeSplitAttributes() {
+        String username = System.getProperty("user.name");
+        Path tmpDir = Paths.get(String.format("/tmp/%s/androlog_manifest_fix_%d", username, System.nanoTime()));
+        String rebuiltApkPath = apkPath.replace(".apk", "_nosplit.apk");
+
+        try {
+            Files.createDirectories(tmpDir);
+
+            int decodeExit = executeCommand(String.format("apktool d -f %s -o %s", apkPath, tmpDir));
+            if (decodeExit != 0) {
+                Writer.v().perror("Could not decode APK to remove split attributes.");
+                return;
+            }
+
+            Path manifestPath = tmpDir.resolve("AndroidManifest.xml");
+            if (!Files.exists(manifestPath)) {
+                Writer.v().perror("AndroidManifest.xml not found in decoded APK.");
+                return;
+            }
+
+            String manifest = Files.readString(manifestPath);
+            String updatedManifest = manifest
+                    .replaceAll("\\sandroid:requiredSplitTypes=\"[^\"]*\"", "")
+                    .replaceAll("\\sandroid:splitTypes=\"[^\"]*\"", "");
+
+            if (!updatedManifest.equals(manifest)) {
+                Files.writeString(manifestPath, updatedManifest);
+                int buildExit = executeCommand(String.format("apktool b %s -o %s", tmpDir, rebuiltApkPath));
+                if (buildExit != 0) {
+                    Writer.v().perror("Could not rebuild APK after removing split attributes.");
+                    return;
+                }
+                replaceOriginalApk(rebuiltApkPath);
+            }
+        } catch (Exception e) {
+            Writer.v().perror("Problem while removing split attributes: " + e.getMessage());
+        } finally {
+            try {
+                if (Files.exists(tmpDir)) {
+                    FileUtils.deleteDirectory(tmpDir.toFile());
+                }
+                Path rebuiltApk = Paths.get(rebuiltApkPath);
+                if (Files.exists(rebuiltApk)) {
+                    Files.delete(rebuiltApk);
+                }
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /**
@@ -65,9 +131,6 @@ public class ApkPreparator {
      */
     private void signApk(String outputApk) {
         String keystorePath = extractKeystore();
-//        String command = String.format(
-//                "%s sign --ks %s --ks-pass pass:android --v2-signing-enabled true --v1-signing-enabled true --out %s --ks-key-alias android %s",
-//                apksignerPath, keystorePath, outputApk, apkPath);
         String command = String.format(
                 "%s sign --ks %s --ks-pass pass:android --in %s --out %s --ks-key-alias android",
                 apksignerPath, keystorePath, apkPath, outputApk);
@@ -110,28 +173,34 @@ public class ApkPreparator {
      * Executes a given command in the system's runtime environment.
      *
      * @param command The command to be executed.
+     * @return The process exit code, or -1 if execution failed.
      */
-    private void executeCommand(String command) {
+    private int executeCommand(String command) {
         try {
             Process process = Runtime.getRuntime().exec(command);
 
             // Consume stdout
             new Thread(() -> {
                 try (InputStream is = process.getInputStream()) {
-                    while (is.read() != -1) {}
-                } catch (IOException ignored) {}
+                    while (is.read() != -1) {
+                    }
+                } catch (IOException ignored) {
+                }
             }).start();
 
             // Consume stderr
             new Thread(() -> {
                 try (InputStream es = process.getErrorStream()) {
-                    while (es.read() != -1) {}
-                } catch (IOException ignored) {}
+                    while (es.read() != -1) {
+                    }
+                } catch (IOException ignored) {
+                }
             }).start();
 
-            process.waitFor();
+            return process.waitFor();
         } catch (Exception e) {
             Writer.v().perror(String.format("Problem with the execution of the command: %s", command));
+            return -1;
         }
     }
 
