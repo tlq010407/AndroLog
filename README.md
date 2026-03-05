@@ -6,7 +6,7 @@
 
 Welcome to **AndroLog**, your comprehensive solution for inserting probes into Android apps to compute code coverage at runtime. AndroLog provides automated pipelines, multiple coverage granularities, and robust handling of various Android app configurations.
 
-## :sparkles: Features
+## Features
 
 **AndroLog** offers multiple levels of granularity:
 - **Classes** - Track execution at the class level
@@ -19,7 +19,7 @@ Welcome to **AndroLog**, your comprehensive solution for inserting probes into A
 - **Content Providers** - Content provider access logging
 - **Method Calls** - Call chain analysis (e.g., a()-->b())
 
-### :rocket: Key Enhancements
+### Key Enhancements
 
 - ✅ **Automated Coverage Pipelines** - One-command testing and reporting
 - ✅ **Branch Coverage** - Complete if/switch statement coverage
@@ -28,7 +28,7 @@ Welcome to **AndroLog**, your comprehensive solution for inserting probes into A
 - ✅ **Multi-threading** - Configurable Soot thread count (`-t`)
 - ✅ **JSON & Text Reports** - Structured and human-readable output
 
-## :zap: Quick Start
+## Quick Start
 
 ### Option 1: Automated Testing (Recommended)
 Fully automated pipeline with monkey testing:
@@ -47,7 +47,7 @@ See the [Manual Pipeline](#manual-pipeline) section below.
 
 ---
 
-## :books: Documentation
+## Documentation
 
 - **[COVERAGE_QUICKSTART.md](COVERAGE_QUICKSTART.md)** - Quick reference guide with examples
 - **[ENHANCEMENT_SUMMARY.md](ENHANCEMENT_SUMMARY.md)** - Detailed changelog and improvements
@@ -55,9 +55,9 @@ See the [Manual Pipeline](#manual-pipeline) section below.
 
 ---
 
-## :rocket: Getting Started
+## Getting Started
 
-### :arrow_down: Installation
+### Installation
 
 1. **Clone the repository:**
    ```bash
@@ -82,7 +82,7 @@ The JAR will be generated at: `target/androlog-0.1-jar-with-dependencies.jar`
 
 ---
 
-## :computer: Usage
+## Usage
 
 ### Command-Line Options
 
@@ -112,7 +112,7 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar [options]
 
 ---
 
-## :hammer_and_wrench: Automated Pipelines
+## Automated Pipelines
 
 ### 1. Automated Testing Pipeline
 
@@ -171,7 +171,7 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar [options]
 
 ---
 
-## :wrench: Manual Pipeline
+## Manual Pipeline
 
 ### Step 1: Instrument APK
 ```bash
@@ -214,7 +214,7 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar \
 
 ---
 
-## :chart_with_upwards_trend: Coverage Report Format
+## Coverage Report Format
 
 ### JSON Output Structure
 ```json
@@ -260,7 +260,7 @@ Branches:   2,995 / 174,444  (1.7%)
 
 ---
 
-## :bulb: Usage Examples
+## Usage Examples
 
 ### Full Coverage - All Types
 ```bash
@@ -328,7 +328,7 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar \
 
 ---
 
-## :warning: Troubleshooting
+## Troubleshooting
 
 ### Empty Coverage Report (All Zeros)
 **Problem:** Coverage report shows 0% for all metrics  
@@ -356,26 +356,6 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar \
 2. Verify Android SDK tools are installed
 3. Ensure Java 8+ is being used
 
----
-
-## :test_tube: Tested Apps
-
-### ✅ Compatible Apps
-| App | Type | Coverage Types | Notes |
-|-----|------|----------------|-------|
-| Mood Tracker | Java + ProGuard | All (`-c -m -s -b`) | Excellent results |
-| OmniNotes | Java + ProGuard | All | Fully working |
-| Sunflower | Kotlin | All | Works with standard flags |
-
-### ❌ Incompatible Apps
-| App | Type | Issue | Workaround |
-|-----|------|-------|------------|
-| NewPipe | Kotlin + R8 | VerifyError | Use `-nr` mode |
-
----
-
-## :file_folder: Project Structure
-
 ```
 AndroLog/
 ├── src/main/java/com/jordansamhi/androlog/
@@ -401,7 +381,7 @@ AndroLog/
 
 ---
 
-## :link: Related Tools
+## Related Tools
 
 ### ACVTool
 **Location:** `artifacts/acvtool/`  
@@ -415,7 +395,7 @@ AndroLog/
 
 ---
 
-## :hammer: Built With
+## Built With
 
 * [Maven](https://maven.apache.org/) - Dependency management
 * [Soot](https://soot-oss.github.io/soot/) - Java bytecode analysis and transformation
@@ -423,13 +403,13 @@ AndroLog/
 
 ---
 
-## :page_facing_up: License
+## License
 
 See [LICENSE](LICENSE) file for details.
 
 ---
 
-## :calendar: Version History
+## Version History
 
 **Latest:** v0.1 (March 2026)
 - ✅ Branch coverage support (`-b` flag)
@@ -439,23 +419,3 @@ See [LICENSE](LICENSE) file for details.
 - ✅ Automated testing pipelines
 - ✅ JSON and text report generation
 - ✅ Config properties compatibility fix
-
----
-
-## :busts_in_silhouette: Contributing
-
-Contributions are welcome! Please ensure:
-1. Code compiles with `mvn clean install`
-2. Existing tests pass
-3. New features include appropriate documentation
-
----
-
-## :email: Contact
-
-For questions, issues, or contributions, please open an issue on GitHub.
-
----
-
-**Last Updated:** March 5, 2026  
-**Maintainer:** Jordan Samhi
