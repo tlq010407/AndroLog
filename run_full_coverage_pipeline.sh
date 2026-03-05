@@ -29,10 +29,69 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to resolve device ID (interactive selection)
+resolve_device_id() {
+    local requested_device=$1
+    
+    # Use provided device if specified
+    if [ -n "$requested_device" ]; then
+        ADB_DEVICE="$requested_device"
+        return 0
+    fi
+    
+    # Check for ANDROLOG_DEVICE_ID environment variable
+    if [ -n "$ANDROLOG_DEVICE_ID" ]; then
+        ADB_DEVICE="$ANDROLOG_DEVICE_ID"
+        return 0
+    fi
+    
+    # Get list of connected devices
+    local devices
+    devices=$(adb devices 2>/dev/null | awk '/\tdevice$/ {print $1}')
+    local count
+    count=$(echo "$devices" | sed '/^$/d' | wc -l | xargs)
+    
+    # If exactly one device, use it
+    if [ "$count" -eq 1 ]; then
+        ADB_DEVICE=$(echo "$devices" | sed '/^$/d' | head -1)
+        return 0
+    fi
+    
+    # If no devices, show error
+    if [ "$count" -eq 0 ]; then
+        log_error "No online emulator/device found"
+        local avd_name
+        avd_name=$(emulator -list-avds 2>/dev/null | head -1)
+        if [ -n "$avd_name" ]; then
+            log_info "Start one with: emulator -avd $avd_name -no-snapshot -writable-system -port 5560"
+        fi
+        return 1
+    fi
+    
+    # Multiple devices - let user choose
+    log_info "Multiple devices detected. Select one:"
+    local idx=1
+    while IFS= read -r dev; do
+        echo "  [$idx] $dev"
+        idx=$((idx + 1))
+    done <<< "$(echo "$devices" | sed '/^$/d')"
+    
+    local selected_index
+    read -r -p "Choose device number: " selected_index < /dev/tty 2>/dev/null || read -r -p "Choose device number: " selected_index
+    
+    if ! [[ "$selected_index" =~ ^[0-9]+$ ]] || [ "$selected_index" -lt 1 ] || [ "$selected_index" -gt "$count" ]; then
+        log_error "Invalid selection"
+        return 1
+    fi
+    
+    ADB_DEVICE=$(echo "$devices" | sed '/^$/d' | sed -n "${selected_index}p")
+    return 0
+}
+
 # Check arguments
 if [ $# -lt 3 ]; then
-    log_error "Usage: $0 <apk_path> <package_name> <output_dir_name> [log_tag]"
-    log_error "Example: $0 /path/to/app.apk com.example.app my_app_output MY_TAG"
+    log_error "Usage: $0 <apk_path> <package_name> <output_dir_name> [log_tag] [device_id]"
+    log_error "Example: $0 /path/to/app.apk com.example.app my_app_output MY_TAG emulator-5554"
     exit 1
 fi
 
@@ -40,6 +99,7 @@ APK_PATH="$1"
 PACKAGE_NAME="$2"
 OUTPUT_DIR_NAME="$3"
 LOG_TAG="${4:-ANDROLOG}"
+REQUESTED_DEVICE="${5:-}"
 
 # Validate APK exists
 if [ ! -f "$APK_PATH" ]; then
@@ -53,7 +113,9 @@ PLATFORMS_PATH="/Users/liqi/Library/Android/sdk/platforms"
 OUTPUT_BASE="$SCRIPT_DIR/fse-dataset/instrumented_apk"
 OUTPUT_DIR="$OUTPUT_BASE/$OUTPUT_DIR_NAME"
 JAR_PATH="$SCRIPT_DIR/target/androlog-0.1-jar-with-dependencies.jar"
-ADB_DEVICE="emulator-5554"
+
+# Resolve device ID (will be set by resolve_device_id function)
+ADB_DEVICE=""
 
 APK_FILENAME=$(basename "$APK_PATH")
 APK_NAME="${APK_FILENAME%.apk}"
@@ -90,14 +152,20 @@ if [ ! -f "$INSTRUMENTED_APK" ]; then
     exit 1
 fi
 
-# Step 2: Check emulator connection
-log_info "Step 2/6: Checking emulator connection..."
-adb -s "$ADB_DEVICE" get-state >/dev/null 2>&1
-if [ $? -ne 0 ]; then
-    log_error "Emulator $ADB_DEVICE is not connected. Please start the emulator first."
+# Step 2: Select and check emulator connection
+log_info "Step 2/6: Selecting and checking emulator connection..."
+if ! resolve_device_id "$REQUESTED_DEVICE"; then
+    log_error "Failed to resolve device ID"
     exit 1
 fi
-log_success "Emulator connected"
+
+log_info "Using device: $ADB_DEVICE"
+adb -s "$ADB_DEVICE" get-state >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+    log_error "Device $ADB_DEVICE is not responding. Please check the device."
+    exit 1
+fi
+log_success "Device connected: $ADB_DEVICE"
 
 # Step 3: Uninstall old version and install instrumented APK
 log_info "Step 3/6: Installing instrumented APK..."
@@ -118,7 +186,7 @@ log_info "Clearing logcat buffer..."
 adb -s "$ADB_DEVICE" logcat -c
 
 log_info "Launching application..."
-adb -s "$ADB_DEVICE" shell monkey -p "$PACKAGE_NAME" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+adb -s "$ADB_DEVICE" shell monkey -p "$PACKAGE_NAME" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
 
 log_info "Waiting for application to initialize (15 seconds)..."
 sleep 15
