@@ -22,6 +22,8 @@ public class SummaryLogBuilder {
     private final Set<String> visitedComponents = new HashSet<>();
     private final Map<String, Map<String, Integer>> perMinuteSummaries = new TreeMap<>(); // TreeMap keeps minutes ordered
     private final SimpleDateFormat minuteFormat = new SimpleDateFormat("MM-dd HH:mm", Locale.US);
+    private int nativeSignalsSeen = 0;
+    private int nativeSignalsMatched = 0;
 
     /**
      * Private constructor to prevent instantiation from outside the class.
@@ -170,5 +172,21 @@ public class SummaryLogBuilder {
 
     public Map<String, Map<String, Integer>> getPerMinuteSummaries() {
         return perMinuteSummaries;
+    }
+
+    public synchronized void incrementNativeSignalSeen() {
+        nativeSignalsSeen++;
+    }
+
+    public synchronized void incrementNativeSignalMatched() {
+        nativeSignalsMatched++;
+    }
+
+    public synchronized int getNativeSignalsSeen() {
+        return nativeSignalsSeen;
+    }
+
+    public synchronized int getNativeSignalsMatched() {
+        return nativeSignalsMatched;
     }
 }

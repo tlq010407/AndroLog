@@ -1,6 +1,113 @@
 # AndroLog Enhancement Summary
 
-## Completed Enhancements (March 4, 2026)
+## Completed Enhancements (March 4-6, 2026)
+
+### NEW: Strict Dual-Edge Branch Coverage & CFG Export (March 6, 2026)
+
+**Files:**
+- `src/main/java/com/jordansamhi/androlog/BranchDescriptorUtil.java` (NEW)
+- `src/main/java/com/jordansamhi/androlog/CfgExporter.java` (NEW)
+- `src/main/java/com/jordansamhi/androlog/BranchLogger.java` (UPDATED)
+- `src/main/java/com/jordansamhi/androlog/SummaryBuilder.java` (UPDATED)
+- `src/main/java/com/jordansamhi/androlog/LogParser.java` (UPDATED)
+- `src/main/java/com/jordansamhi/androlog/Main.java` (UPDATED)
+- `run_full_coverage_pipeline.sh` (UPDATED)
+
+**Enhancements:**
+
+#### 1. Hypergranular Branch Identification
+Instead of simple numeric IDs, branches now have **readable descriptors**:
+
+**Before:**
+```
+BRANCH=%s|IF|%d
+BRANCH=%s|SWITCH|%d
+```
+
+**After:**
+```
+BRANCH=<method_sig>|IF|<location>|EDGE=TRUE|COND=<condition>
+BRANCH=<method_sig>|IF|<location>|EDGE=FALSE|COND=<condition>
+BRANCH=<method_sig>|SWITCH|<location>|CASE=<value>
+BRANCH=<method_sig>|SWITCH|<location>|CASE=DEFAULT
+```
+
+**Benefits:**
+- Location tracking: Source line (L123) or identity hash (U3c7a65ec) if unavailable
+- Edge type: TRUE/FALSE for IF, case values for SWITCH, DEFAULT for uncovered default path
+- Condition expression: Jimple IR representation for understanding branch logic
+- Unique identification: No hash collisions, can correlate with CFG
+
+#### 2. Strict Dual-Edge Coverage for IF Statements
+Traditional single-branch counting is replaced with **dual-edge coverage**:
+- Each `if` statement generates 2 branch edges: **TRUE** (condition satisfied) and **FALSE** (condition not satisfied)
+- Both edges must be executed separately to achieve 100% IF coverage
+- Enables precise identification of untested code paths
+
+Example:
+```java
+if (user != null) {  // Branch point
+    user.login();    // TRUE edge must be taken AND
+}                    // FALSE edge must be taken (when user == null)
+```
+
+#### 3. Complete SWITCH Coverage including DEFAULT
+- Each `switch` case is tracked individually with its value
+- **DEFAULT case is explicitly tracked** as a separate edge
+- Enables identification of missing case handlers or default path gaps
+
+#### 4. Processing CFG Export (NEW)
+Added `-cfg` option to export complete control flow graph with embedded branch metadata:
+
+**CFG Format:**
+```
+METHOD <method_signature>
+NODE <id> <location> <jimple_code>
+EDGE <source> -> <target>
+BRANCH_IF <branch_descriptor>
+BRANCH_SWITCH <branch_descriptor>
+ENDMETHOD
+```
+
+**Usage:**
+```bash
+java -jar androlog.jar -p platforms -a app.apk -l TAG -c -m -s -b -pa logs.txt -cfg processing.cfg
+```
+
+**Applications:**
+- Gap analysis: Find all uncovered branch points
+- Control flow visualization: Understand method structure
+- Coverage correlation: Cross-reference CFG nodes with runtime logs
+- Debugging: Identify complex conditional logic
+
+#### 5. BranchDescriptorUtil Utility Class
+New utility for generating consistent, parseable branch descriptors:
+- Extracts source line numbers or identity hash codes for location
+- Handles both TableSwitchStmt and LookupSwitchStmt case resolution
+- Sanitizes condition expressions to prevent parsing errors
+
+#### 6. Updated LogParser for Precise Branch Matching
+Enhanced branch matching logic:
+- Full branch key matching instead of prefix-only
+- Backward compatibility with method-level fallback
+- Handles edge-type filtering (TRUE/FALSE/CASE=value)
+
+#### 7. Full Pipeline Integration
+- `run_full_coverage_pipeline.sh` automatically calls CFG generation
+- Final report displays `processing.cfg` output path
+- All JSON/text summary generation includes CFG exports
+
+**Example Output:**
+```
+Files generated:
+  - Instrumented APK: fse-dataset/oceanex_test/OceanEx.apk
+  - Filtered logs: fse-dataset/oceanex_test/oceanex_test_logs.txt (15432 entries)
+  - Coverage JSON: fse-dataset/oceanex_test/coverage_report.json
+  - Processing CFG: fse-dataset/oceanex_test/processing.cfg ⭐ NEW
+  - Coverage summary: fse-dataset/oceanex_test/coverage_summary.txt
+```
+
+---
 
 ### 1. BranchLogger Register Optimization
 **File:** `src/main/java/com/jordansamhi/androlog/BranchLogger.java`
@@ -157,21 +264,25 @@ java -jar androlog.jar -p $PLATFORMS -a $APK -l $TAG -c -m -s -b -pa $LOGS -j ou
 ```
 AndroLog/
 ├── src/main/java/com/jordansamhi/androlog/
-│   ├── Main.java                 # Added -nr flag, auto-detection
-│   ├── BranchLogger.java         # Optimized register usage
-│   ├── ApkPreparator.java        # Added split removal, config fix
-│   ├── SummaryBuilder.java       # (Analyzed for coverage fix)
-│   └── LogParser.java            # (Analyzed for coverage fix)
-├── run_automated_coverage.sh     # Full automation with monkey
-├── run_full_coverage_pipeline.sh # Interactive testing workflow
-├── example_usage.sh              # Usage examples (fixed)
-├── COVERAGE_QUICKSTART.md        # Quick reference guide
-├── COVERAGE_PIPELINE_GUIDE.md    # Comprehensive documentation
+│   ├── Main.java                          # Added -nr flag, auto-detection, -cfg wiring
+│   ├── BranchLogger.java                  # Optimized register usage + dual-edge instrumentation
+│   ├── BranchDescriptorUtil.java          # NEW: Readable branch descriptor generation
+│   ├── CfgExporter.java                   # NEW: CFG export with branch metadata
+│   ├── SummaryBuilder.java                # Aligned with strict dual-edge counting
+│   ├── LogParser.java                     # Enhanced for precise branch matching
+│   ├── ApkPreparator.java                 # Added split removal, config fix
+│   └── ...
+├── run_automated_coverage.sh              # Full automation with monkey
+├── run_full_coverage_pipeline.sh          # Interactive testing workflow + CFG export
+├── COVERAGE_QUICKSTART.md                 # Updated with CFG documentation
+├── ENHANCEMENT_SUMMARY.md                 # This file
+├── FRIDA_GUIDE.md                         # Frida instrumentation guide
+├── README.md                              # Main documentation (updated)
 └── target/
-    └── androlog-0.1-jar-with-dependencies.jar  # Built with all fixes
-```
-
-## Build Information
+- **Build Command:** `mvn clean package`
+- **JAR Location:** `target/androlog-0.1-jar-with-dependencies.jar`
+- **Build Date:** March 6, 2026
+- **Status:** All tests passing, fully functional with strict dual-edge branch coverage
 - **Build Command:** `mvn clean package`
 - **JAR Location:** `target/androlog-0.1-jar-with-dependencies.jar`
 - **Build Date:** March 4, 2026
@@ -212,6 +323,6 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar \
 
 ---
 
-**Version:** AndroLog v0.1 Enhanced  
-**Date:** March 4, 2026  
-**Contributors:** Enhanced instrumentation, split APK handling, automation pipeline
+**Version:** AndroLog v0.1 Enhanced (Strict Branch Coverage)
+**Date:** March 6, 2026  
+**Contributors:** Enhanced instrumentation, split APK handling, automation pipeline, strict dual-edge branch coverage & CFG export

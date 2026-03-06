@@ -29,6 +29,7 @@ After running either script, you'll find in `fse-dataset/instrumented_apk/<outpu
 - **`<output>_logs.txt`** - Filtered instrumentation logs
 - **`coverage_report.json`** - JSON format coverage data
 - **`coverage_summary.txt`** - Human-readable text summary
+- **`processing.cfg`** - Control flow graph with branch metadata (NEW)
 - **`<apk_name>.apk`** - Instrumented APK
 - **`<output>_full_logcat.txt`** - Complete device logs
 
@@ -44,6 +45,28 @@ After running either script, you'll find in `fse-dataset/instrumented_apk/<outpu
 }
 ```
 
+### Branch Coverage (NEW - Strict Dual-Edge)
+Each `if` statement is tracked as **two edges** (TRUE and FALSE), and each `switch` case plus DEFAULT:
+```
+BRANCH=<method>|IF|<location>|EDGE=TRUE|COND=<condition>
+BRANCH=<method>|IF|<location>|EDGE=FALSE|COND=<condition>
+BRANCH=<method>|SWITCH|<location>|CASE=<value>
+BRANCH=<method>|SWITCH|<location>|CASE=DEFAULT
+```
+
+### Processing CFG File (NEW)
+The `processing.cfg` file contains the complete control flow graph:
+```
+METHOD <signature>
+NODE <id> <location> <jimple_code>
+EDGE <source> -> <target>
+BRANCH_IF <branch_descriptor>
+BRANCH_SWITCH <branch_descriptor>
+ENDMETHOD
+```
+
+Use this to perform **gap analysis** - identify uncovered branches by cross-referencing with runtime logs.
+
 ## 🔧 Manual Pipeline Steps
 
 ### 1. Instrument APK
@@ -55,13 +78,15 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar \
     -c -m -s -b \
     -l <LOG_TAG>
 ```
-
-### 2. Install and Test
-```bash
-adb -s emulator-5554 install --no-incremental -r <output_dir/instrumented.apk>
-adb -s emulator-5554 shell monkey -p <package_name> -c android.intent.category.LAUNCHER 1
-# ... test the app ...
+ \
+    -cfg processing.cfg
 ```
+
+**⚠️ CRITICAL:** 
+- Use **original (uninstrumented) APK** for coverage generation (step 4)
+- Must include **same flags** (`-c -m -s -b`) in both instrumentation AND coverage generation
+- Must use **same log tag** (`-l`) value in both steps
+- **NEW:** `-cfg` option generates CFG file for gap analysis (optional but recommended)
 
 ### 3. Collect Logs
 ```bash

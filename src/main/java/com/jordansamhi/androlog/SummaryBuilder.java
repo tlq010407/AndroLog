@@ -9,6 +9,7 @@ import soot.jimple.*;
 import soot.jimple.infoflow.collect.ConcurrentHashSet;
 import soot.util.Chain;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -193,20 +194,19 @@ public class SummaryBuilder {
                 return;
             }
             Chain<Unit> units = b.getUnits();
-            int branchCnt = 0;
             for (Unit u : units) {
                 Stmt stmt = (Stmt) u;
                 if (stmt instanceof IfStmt) {
-                    branchCnt++;
-                    String branch_log = String.format("BRANCH=%s|IF|%d", b.getMethod(), branchCnt);
-                    incrementComponent("branches", branch_log);
+                    IfStmt ifStmt = (IfStmt) stmt;
+                    incrementComponent("branches", BranchDescriptorUtil.buildIfDescriptor(b.getMethod(), ifStmt, "TRUE"));
+                    incrementComponent("branches", BranchDescriptorUtil.buildIfDescriptor(b.getMethod(), ifStmt, "FALSE"));
                 } else if (stmt instanceof SwitchStmt) {
                     SwitchStmt switchStmt = (SwitchStmt) stmt;
                     for (int i = 0; i < switchStmt.getTargets().size(); i++) {
-                        branchCnt++;
-                        String branch_log = String.format("BRANCH=%s|SWITCH|%d", b.getMethod(), branchCnt);
+                        String branch_log = BranchDescriptorUtil.buildSwitchDescriptor(b.getMethod(), switchStmt, i);
                         incrementComponent("branches", branch_log);
                     }
+                    incrementComponent("branches", BranchDescriptorUtil.buildSwitchDefaultDescriptor(b.getMethod(), switchStmt));
                 }
             }
         });
@@ -216,6 +216,15 @@ public class SummaryBuilder {
      * Executes all transformation phases to build the summary.
      */
     public void build(boolean includeLibraries) {
+        build(includeLibraries, false);
+    }
+
+    public void build(boolean includeLibraries, boolean noBodiesMode) {
+        if (noBodiesMode) {
+            buildSafeWithoutJtp(includeLibraries);
+            return;
+        }
+
         if (CommandLineOptions.v().hasOption("c")) {
             getInfoClasses(includeLibraries);
         }
@@ -232,6 +241,92 @@ public class SummaryBuilder {
             getInfoBranches(includeLibraries);
         }
         PackManager.v().runPacks();
+    }
+
+    private void buildSafeWithoutJtp(boolean includeLibraries) {
+        Chain<SootClass> appClasses = Scene.v().getApplicationClasses();
+
+        for (SootClass sootClass : appClasses) {
+            if (!includeLibraries && LibrariesManager.v().isLibrary(sootClass)) {
+                continue;
+            }
+
+            if (CommandLineOptions.v().hasOption("c")) {
+                incrementComponent("classes", sootClass.getName());
+            }
+
+            if (CommandLineOptions.v().hasOption("cp")) {
+                String actualComponentType = su.getComponentType(sootClass);
+                switch (actualComponentType) {
+                    case "Activity":
+                        incrementComponent("activities", sootClass.getName());
+                        break;
+                    case "Service":
+                        incrementComponent("services", sootClass.getName());
+                        break;
+                    case "BroadcastReceiver":
+                        incrementComponent("broadcast-receivers", sootClass.getName());
+                        break;
+                    case "ContentProvider":
+                        incrementComponent("content-providers", sootClass.getName());
+                        break;
+                }
+            }
+
+            List<SootMethod> methods = sootClass.getMethods();
+            for (SootMethod method : methods) {
+                if (isLogCheckerClass(method)) {
+                    continue;
+                }
+
+                if (CommandLineOptions.v().hasOption("m")) {
+                    incrementComponent("methods", method.getSignature());
+                }
+
+                if ((!CommandLineOptions.v().hasOption("s") && !CommandLineOptions.v().hasOption("b"))
+                        || !method.isConcrete()) {
+                    continue;
+                }
+
+                try {
+                    Body body = method.retrieveActiveBody();
+
+                    if (CommandLineOptions.v().hasOption("s")) {
+                        int cnt = 0;
+                        for (Unit unit : body.getUnits()) {
+                            cnt++;
+                            Stmt stmt = (Stmt) unit;
+                            if (stmt instanceof IdentityStmt || stmt instanceof ReturnStmt
+                                    || stmt instanceof ReturnVoidStmt || stmt instanceof MonitorStmt) {
+                                continue;
+                            }
+                            String stmtLog = String.format("STATEMENT=%s|%s|%d", method, stmt, cnt);
+                            incrementComponent("statements", stmtLog);
+                        }
+                    }
+
+                    if (CommandLineOptions.v().hasOption("b")) {
+                        for (Unit unit : body.getUnits()) {
+                            Stmt stmt = (Stmt) unit;
+                            if (stmt instanceof IfStmt) {
+                                IfStmt ifStmt = (IfStmt) stmt;
+                                incrementComponent("branches", BranchDescriptorUtil.buildIfDescriptor(method, ifStmt, "TRUE"));
+                                incrementComponent("branches", BranchDescriptorUtil.buildIfDescriptor(method, ifStmt, "FALSE"));
+                            } else if (stmt instanceof SwitchStmt) {
+                                SwitchStmt switchStmt = (SwitchStmt) stmt;
+                                int numTargets = switchStmt.getTargets().size();
+                                for (int i = 0; i < numTargets; i++) {
+                                    String branchLog = BranchDescriptorUtil.buildSwitchDescriptor(method, switchStmt, i);
+                                    incrementComponent("branches", branchLog);
+                                }
+                                incrementComponent("branches", BranchDescriptorUtil.buildSwitchDefaultDescriptor(method, switchStmt));
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        }
     }
 
     /**

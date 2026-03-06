@@ -95,8 +95,6 @@ public class BranchLogger {
             }
 
             Chain<Unit> units = b.getUnits();
-            int branchCounter = 0;
-
             // Create array from units to avoid concurrent modification
             Unit[] unitsArray = units.toArray(new Unit[0]);
 
@@ -104,20 +102,28 @@ public class BranchLogger {
                 Stmt stmt = (Stmt) u;
 
                 if (stmt instanceof IfStmt) {
-                    branchCounter++;
-                    String branchLog = String.format("BRANCH=%s|IF|%d", b.getMethod().getSignature(), branchCounter);
-                    insertLogStatement(units, stmt, tagToLog, branchLog, b);
+                    IfStmt ifStmt = (IfStmt) stmt;
+
+                    String trueEdgeLog = BranchDescriptorUtil.buildIfDescriptor(b.getMethod(), ifStmt, "TRUE");
+                    insertLogBeforeUnit(units, ifStmt.getTarget(), tagToLog, trueEdgeLog, b);
+
+                    Unit falseTarget = units.getSuccOf(stmt);
+                    if (falseTarget != null) {
+                        String falseEdgeLog = BranchDescriptorUtil.buildIfDescriptor(b.getMethod(), ifStmt, "FALSE");
+                        insertLogBeforeUnit(units, falseTarget, tagToLog, falseEdgeLog, b);
+                    }
 
                 } else if (stmt instanceof SwitchStmt) {
                     SwitchStmt switchStmt = (SwitchStmt) stmt;
                     int numTargets = switchStmt.getTargets().size();
-                    
-                    // Log each case
+
                     for (int i = 0; i < numTargets; i++) {
-                        branchCounter++;
-                        String branchLog = String.format("BRANCH=%s|SWITCH|%d", b.getMethod().getSignature(), branchCounter);
-                        insertLogStatement(units, stmt, tagToLog, branchLog, b);
+                        String branchLog = BranchDescriptorUtil.buildSwitchDescriptor(b.getMethod(), switchStmt, i);
+                        insertLogBeforeUnit(units, switchStmt.getTarget(i), tagToLog, branchLog, b);
                     }
+
+                    String defaultBranchLog = BranchDescriptorUtil.buildSwitchDefaultDescriptor(b.getMethod(), switchStmt);
+                    insertLogBeforeUnit(units, switchStmt.getDefaultTarget(), tagToLog, defaultBranchLog, b);
                 }
             }
         });
@@ -132,10 +138,8 @@ public class BranchLogger {
      * @param message  The log message.
      * @param b        The method body.
      */
-    private void insertLogStatement(Chain<Unit> units, Unit stmt, String tagToLog, String message, Body b) {
-        // Find the next unit
-        Unit nextUnit = units.getSuccOf(stmt);
-        if (nextUnit == null) {
+    private void insertLogBeforeUnit(Chain<Unit> units, Unit insertionPoint, String tagToLog, String message, Body b) {
+        if (insertionPoint == null) {
             return;
         }
 
@@ -155,8 +159,7 @@ public class BranchLogger {
             InvokeExpr expr = jimple.newStaticInvokeExpr(logMethod.makeRef(), args);
             InvokeStmt invoke = jimple.newInvokeStmt(expr);
 
-            // Insert before next unit
-            units.insertBefore(invoke, nextUnit);
+            units.insertBefore(invoke, insertionPoint);
         } catch (Exception e) {
             // Silently fail if Log class unavailable
         }

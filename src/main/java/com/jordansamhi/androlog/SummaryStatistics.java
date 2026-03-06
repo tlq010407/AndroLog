@@ -62,6 +62,14 @@ public class SummaryStatistics {
             json.append("\n");
         }
 
+        json.append("  },\n");
+        int nativeSeen = summaryLogBuilder.getNativeSignalsSeen();
+        int nativeMatched = summaryLogBuilder.getNativeSignalsMatched();
+        double nativeRate = nativeSeen != 0 ? (nativeMatched * 100.0 / nativeSeen) : 0.0;
+        json.append("  \"nativeSignals\": {\n");
+        json.append("    \"seen\": ").append(nativeSeen).append(",\n");
+        json.append("    \"matched\": ").append(nativeMatched).append(",\n");
+        json.append("    \"matchRate\": \"").append(String.format("%.1f%%", nativeRate)).append("\"\n");
         json.append("  }\n");
         json.append("}\n");
 
@@ -182,6 +190,14 @@ public class SummaryStatistics {
             json.append("\n");
         }
 
+        json.append("  },\n");
+        int nativeSeen = summaryLogBuilder.getNativeSignalsSeen();
+        int nativeMatched = summaryLogBuilder.getNativeSignalsMatched();
+        double nativeRate = nativeSeen != 0 ? (nativeMatched * 100.0 / nativeSeen) : 0.0;
+        json.append("  \"nativeSignals\": {\n");
+        json.append("    \"seen\": ").append(nativeSeen).append(",\n");
+        json.append("    \"matched\": ").append(nativeMatched).append(",\n");
+        json.append("    \"matchRate\": \"").append(String.format("%.1f%%", nativeRate)).append("\"\n");
         json.append("  }\n");
         json.append("}\n");
 

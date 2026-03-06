@@ -1,5 +1,8 @@
 package com.jordansamhi.androlog;
 
+import com.jordansamhi.androlog.frida.CompatibilityDetector;
+import com.jordansamhi.androlog.frida.CompatibilityDetector.InstrumentationMode;
+import com.jordansamhi.androlog.frida.FridaInstrumentation;
 import com.jordansamhi.androlog.utils.Constants;
 import com.jordansamhi.androspecter.SootUtils;
 import com.jordansamhi.androspecter.TmpFolder;
@@ -13,6 +16,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.Date;
 import java.util.Optional;
 
@@ -27,6 +32,7 @@ public class Main {
         options.addOption(new CommandLineOption("parse-per-minute", "pam", "Parse log file per-minute", true, false));
         options.addOption(new CommandLineOption("output", "o", "Instrumented APK output", true, false));
         options.addOption(new CommandLineOption("json", "j", "Parsed logs JSON output", true, false));
+        options.addOption(new CommandLineOption("cfg-output", "cfg", "Processing CFG output (.cfg)", true, false));
         options.addOption(new CommandLineOption("apk", "a", "Apk file", true, true));
         options.addOption(new CommandLineOption("log-identifier", "l", "Log identifier", true, false));
         options.addOption(new CommandLineOption("classes", "c", "Log classes", false, false));
@@ -39,6 +45,11 @@ public class Main {
         options.addOption(new CommandLineOption("package", "pkg", "Package name that will exclusively be instrumented", true, false));
         options.addOption(new CommandLineOption("method-calls", "mc", "Log method calls (e.g., a()-->b())", false, false));
         options.addOption(new CommandLineOption("threads", "t", "Number of threads to use in Soot", true, false));
+        options.addOption(new CommandLineOption("auto-detect", "ad", "Auto-detect instrumentation mode (Soot vs Frida)", false, false));
+        options.addOption(new CommandLineOption("frida", "fr", "Use Frida runtime instrumentation mode", false, false));
+        options.addOption(new CommandLineOption("hybrid", "hy", "Hybrid mode: static denominator + runtime logs", false, false));
+        options.addOption(new CommandLineOption("no-bodies", "nb", "Safe scan mode for Kotlin/R8 apps", false, false));
+        options.addOption(new CommandLineOption("mapping-file", "mf", "R8/ProGuard mapping.txt path for name resolution", true, false));
         options.parseArgs(args);
 
         boolean includeLibraries = !CommandLineOptions.v().hasOption("n");
@@ -46,6 +57,28 @@ public class Main {
         String logIdentifier = Optional.ofNullable(options.getOptionValue("log-identifier")).orElse("ANDROLOG");
         String outputApk = Optional.ofNullable(options.getOptionValue("output")).orElse(TmpFolder.v().get());
         String outputJson = Optional.ofNullable(options.getOptionValue("json")).orElse(TmpFolder.v().get());
+
+        // Explicit Frida mode
+        if (CommandLineOptions.v().hasOption("frida")) {
+            Writer.v().pinfo("Frida mode enabled via --frida flag");
+            handleFridaInstrumentation();
+            return;
+        }
+
+        // Auto-detect instrumentation mode
+        InstrumentationMode mode = InstrumentationMode.SOOT;
+        if (CommandLineOptions.v().hasOption("ad")) {
+            String apkPath = CommandLineOptions.v().getOptionValue("apk");
+            mode = CompatibilityDetector.detectMode(apkPath);
+            Writer.v().pinfo("Auto-detected mode: " + CompatibilityDetector.getDescription(mode));
+            
+            // Force Frida mode if detected
+            if (mode == InstrumentationMode.FRIDA) {
+                Writer.v().pinfo("This app requires Frida instrumentation (Kotlin+R8 detected)");
+                handleFridaInstrumentation();
+                return;
+            }
+        }
 
         Writer.v().pinfo("Setting up environment...");
         SootUtils su = new SootUtils();
@@ -72,9 +105,25 @@ public class Main {
             }
             SummaryBuilder summaryBuilder = SummaryBuilder.v();
             summaryBuilder.setSootUtils(su);
-            summaryBuilder.build(includeLibraries);
+            boolean noBodiesMode = CommandLineOptions.v().hasOption("nb") || CommandLineOptions.v().hasOption("hy");
+            summaryBuilder.build(includeLibraries, noBodiesMode);
 
-            LogParser lp = new LogParser(logIdentifier, summaryBuilder);
+            if (CommandLineOptions.v().hasOption("b")) {
+                String explicitCfgPath = CommandLineOptions.v().getOptionValue("cfg-output");
+                String cfgOutputPath = resolveCfgOutputPath(explicitCfgPath, outputJson, logFilePath);
+                try {
+                    CfgExporter cfgExporter = new CfgExporter(includeLibraries, packageName);
+                    cfgExporter.export(cfgOutputPath);
+                    Writer.v().pinfo("Processing CFG written to " + cfgOutputPath);
+                } catch (Exception cfgError) {
+                    Writer.v().perror("Failed to export processing CFG: " + cfgError.getMessage());
+                }
+            }
+
+            String mappingPath = CommandLineOptions.v().hasOption("mf")
+                    ? CommandLineOptions.v().getOptionValue("mapping-file")
+                    : null;
+            LogParser lp = new LogParser(logIdentifier, summaryBuilder, mappingPath);
             lp.parseLogs(logFilePath);
 
             SummaryLogBuilder summaryLogBuilder = SummaryLogBuilder.v();
@@ -203,5 +252,86 @@ public class Main {
         } else {
             Writer.v().pinfo("No thread count specified. Using Soot's default thread configuration.");
         }
+    }
+
+    /**
+     * Handle Frida-based instrumentation for Kotlin+R8 apps
+     */
+    private static void handleFridaInstrumentation() {
+        try {
+            String apkPath = CommandLineOptions.v().getOptionValue("apk");
+            String packageName = Optional.ofNullable(CommandLineOptions.v().getOptionValue("package")).orElse(null);
+            String logTag = Optional.ofNullable(CommandLineOptions.v().getOptionValue("log-identifier")).orElse("ANDROLOG");
+            String outputDir = Optional.ofNullable(CommandLineOptions.v().getOptionValue("output")).orElse("/tmp/androlog_frida");
+            Files.createDirectories(Paths.get(outputDir));
+
+            String deviceId = detectDeviceId();
+            FridaInstrumentation frida = new FridaInstrumentation(deviceId, apkPath, packageName, logTag, outputDir);
+
+            Writer.v().pinfo("Initializing Frida instrumentation pipeline on device " + deviceId + "...");
+            if (!frida.executeInstrumentationPipeline()) {
+                Writer.v().perror("Frida instrumentation pipeline failed");
+                System.exit(1);
+            }
+
+            Writer.v().psuccess("Frida instrumentation completed");
+            Writer.v().pinfo("Next steps:");
+            Writer.v().pinfo("1. Install APK: adb install -r <copied-apk-under-output-dir>");
+            Writer.v().pinfo("2. Launch app and interact with UI");
+            Writer.v().pinfo("3. Collect logs: adb logcat -d | grep '" + logTag + "' > logs.txt");
+            Writer.v().pinfo("4. Generate report: java -jar ... -pa logs.txt -j report.json");
+
+        } catch (Exception e) {
+            Writer.v().perror("Frida instrumentation error: " + e.getMessage());
+            e.printStackTrace();
+            System.exit(1);
+        }
+    }
+
+    private static String detectDeviceId() {
+        String envDeviceId = System.getenv("ANDROLOG_DEVICE_ID");
+        if (envDeviceId != null && !envDeviceId.trim().isEmpty()) {
+            return envDeviceId.trim();
+        }
+
+        try {
+            Process process = new ProcessBuilder("adb", "devices").start();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    line = line.trim();
+                    if (line.startsWith("emulator-") && line.endsWith("\tdevice")) {
+                        return line.split("\\t")[0];
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        return "emulator-5554";
+    }
+
+    private static String resolveCfgOutputPath(String explicitPath, String outputJsonPath, String logFilePath) {
+        if (explicitPath != null && !explicitPath.trim().isEmpty()) {
+            return explicitPath.trim();
+        }
+
+        if (outputJsonPath != null && !outputJsonPath.trim().isEmpty()) {
+            Path outputJson = Paths.get(outputJsonPath);
+            Path parent = outputJson.getParent();
+            if (parent != null) {
+                return parent.resolve("processing.cfg").toString();
+            }
+        }
+
+        if (logFilePath != null && !logFilePath.trim().isEmpty()) {
+            Path logPath = Paths.get(logFilePath);
+            Path parent = logPath.getParent();
+            if (parent != null) {
+                return parent.resolve("processing.cfg").toString();
+            }
+        }
+
+        return "processing.cfg";
     }
 }

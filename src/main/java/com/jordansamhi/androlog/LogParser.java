@@ -12,6 +12,7 @@ public class LogParser {
     private final String logIdentifier;
     private final SummaryBuilder summaryBuilder;
     private final SummaryLogBuilder summaryLogBuilder = SummaryLogBuilder.v();
+    private final MappingResolver mappingResolver;
 
     private final Set<String> visitedStatements = new HashSet<>();
     private final Set<String> visitedMethods = new HashSet<>();
@@ -22,9 +23,60 @@ public class LogParser {
     private final Set<String> visitedContentProviders = new HashSet<>();
     private final Set<String> visitedBranches = new HashSet<>();
 
+    private boolean matchAndIncrementMethod(String runtimeMethodLike, String originalLineForCounting) {
+        if (runtimeMethodLike == null || runtimeMethodLike.isEmpty()) {
+            return false;
+        }
+
+        String mappedRuntime = mappingResolver != null
+                ? mappingResolver.mapMethodSignatureLike(runtimeMethodLike)
+                : runtimeMethodLike;
+
+        for (String visited : visitedMethods) {
+            if (visited.contains(runtimeMethodLike) || visited.contains(mappedRuntime)) {
+                summaryLogBuilder.incrementMethod(originalLineForCounting);
+                return true;
+            }
+        }
+
+        String[] candidates = {
+                runtimeMethodLike,
+                mappedRuntime,
+                runtimeMethodLike.replace("::", "."),
+                mappedRuntime.replace("::", "."),
+                runtimeMethodLike.replace('_', '.'),
+                mappedRuntime.replace('_', '.')
+        };
+
+        for (String candidate : candidates) {
+            String[] parts = candidate.split("\\.");
+            if (parts.length < 2) {
+                continue;
+            }
+
+            String methodName = parts[parts.length - 1].replace("()", "");
+            String classTail = parts[parts.length - 2];
+
+            for (String visited : visitedMethods) {
+                if ((visited.endsWith(methodName + "(") || visited.contains(methodName + "("))
+                        && visited.contains(classTail)) {
+                    summaryLogBuilder.incrementMethod(originalLineForCounting);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public LogParser(String logIdentifier, SummaryBuilder summaryBuilder) {
+        this(logIdentifier, summaryBuilder, null);
+    }
+
+    public LogParser(String logIdentifier, SummaryBuilder summaryBuilder, String mappingFilePath) {
         this.logIdentifier = logIdentifier;
         this.summaryBuilder = summaryBuilder;
+        this.mappingResolver = MappingResolver.fromFile(mappingFilePath);
 
         for (String component : this.summaryBuilder.getVisitedComponents()) {
             String logType = getType(component);
@@ -53,8 +105,7 @@ public class LogParser {
                         visitedContentProviders.add(component.substring(logType.length()));
                         break;
                     case "branches":
-                        firstPipe = component.indexOf('|');
-                        visitedBranches.add(component.substring(logType.length(),firstPipe));
+                        visitedBranches.add(component.substring(logType.length()));
                         break;
                 }
             }
@@ -99,19 +150,40 @@ public class LogParser {
                     break;
                 case "BRANCH":
                     logIndex = line.indexOf(logType + "=");
-                    firstPipe = line.indexOf('|');
-                    if (visitedBranches.contains(line.substring(logIndex, firstPipe))) {
+                    if (logIndex < 0) {
+                        break;
+                    }
+                    String branchPayload = line.substring(logIndex).trim();
+                    if (visitedBranches.contains(branchPayload) || branchBelongsToKnownMethod(branchPayload)) {
                         summaryLogBuilder.incrementBranch(line);
                     }
                     break;
                 case "METHOD":
-                    if (visitedMethods.contains(line.split(logType + "=")[1])) {
-                        summaryLogBuilder.incrementMethod(line);
-                    }
+                    // Extract method from log: METHOD=class.method()
+                    String methodFromLog = line.split(logType + "=")[1];
+                    matchAndIncrementMethod(methodFromLog, line);
                     break;
                 case "CLASS":
-                    if (visitedClasses.contains(line.split(logType + "=")[1])) {
+                    String classFromLog = line.split(logType + "=")[1];
+                    String mappedClassFromLog = mappingResolver != null
+                            ? mappingResolver.mapClass(classFromLog)
+                            : classFromLog;
+                    if (visitedClasses.contains(classFromLog) || visitedClasses.contains(mappedClassFromLog)) {
                         summaryLogBuilder.incrementClass(line);
+                    }
+                    break;
+                case "NATIVE_METHOD":
+                    String nativeMethodFromLog = line.split(logType + "=")[1];
+                    summaryLogBuilder.incrementNativeSignalSeen();
+                    if (matchAndIncrementMethod(nativeMethodFromLog, line)) {
+                        summaryLogBuilder.incrementNativeSignalMatched();
+                    }
+                    break;
+                case "NATIVE_INVOKE":
+                    String nativeInvokeFromLog = line.split(logType + "=")[1];
+                    summaryLogBuilder.incrementNativeSignalSeen();
+                    if (matchAndIncrementMethod(nativeInvokeFromLog, line)) {
+                        summaryLogBuilder.incrementNativeSignalMatched();
                     }
                     break;
                 case "ACTIVITY":
@@ -145,5 +217,19 @@ public class LogParser {
             return matcher.group(1);
         }
         return null;
+    }
+
+    private boolean branchBelongsToKnownMethod(String branchPayload) {
+        int firstPipe = branchPayload.indexOf('|');
+        if (firstPipe < 0) {
+            return false;
+        }
+        String methodPrefix = branchPayload.substring(0, firstPipe + 1);
+        for (String knownBranch : visitedBranches) {
+            if (knownBranch.startsWith(methodPrefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

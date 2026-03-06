@@ -1,5 +1,7 @@
 # COSMO
 
+**Note**: COSMO is a complementary tool to AndroLog. While COSMO uses JaCoCo-based instrumentation for gradle source projects, **AndroLog** provides bytecode-level instrumentation for APKs with strict dual-edge branch coverage and CFG analysis. See [AndroLog README](../../../../README.md) for an alternative approach with more granular coverage reporting.
+
 [![Ubuntu Build Status](https://github.com/H2SO4T/COSMO/workflows/Ubuntu/badge.svg)](https://github.com/H2SO4T/COSMO/actions?query=workflow%3AUbuntu)
 [![Windows Build Status](https://github.com/H2SO4T/COSMO/workflows/Windows/badge.svg)](https://github.com/H2SO4T/COSMO/actions?query=workflow%3AWindows)
 [![MacOS Build Status](https://github.com/H2SO4T/COSMO/workflows/MacOS/badge.svg)](https://github.com/H2SO4T/COSMO/actions?query=workflow%3AMacOS)
