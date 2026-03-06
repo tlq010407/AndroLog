@@ -132,31 +132,6 @@ Executable examples for:
 - Manual log processing
 - Safe mode usage
 
-## Test Results
-
-### ✅ Mood Tracker (Java + ProGuard)
-- **Status:** SUCCESS
-- **Instrumentation:** Full (`-c -m -s -b`) works perfectly
-- **Coverage Results:**
-  - Methods: 0.8% (1,253/159,905)
-  - Classes: 0.9% (230/24,632)
-  - Statements: 0.8% (12,759/1,659,432)
-  - Branches: 1.7% (2,995/174,444)
-- **Test Duration:** 10 seconds monkey testing
-- **Log Entries:** 177,857 instrumentation logs captured
-
-### ❌ NewPipe (Kotlin + R8)
-- **Status:** INCOMPATIBLE  
-- **Issue:** Fundamental Soot/ART incompatibility
-- **Error:** `VerifyError: copy-cat1 v14<-v4 type=Reference: java.lang.String`
-- **Tested:** All flag combinations (`-m`, `-c`, `-c -m -s -b`, no flags) - all fail
-- **Workaround:** Use `-nr` mode to skip instrumentation
-- **Root Cause:** R8 aggressive optimization produces bytecode patterns incompatible with Soot's Jimple transformation
-
-### ✅ OmniNotes (Java + ProGuard)  
-- **Status:** SUCCESS (verified in earlier tests)
-- **Instrumentation:** Works with standard flags
-
 ## Critical Fixes for Coverage Generation
 
 ### The Missing Flags Bug
