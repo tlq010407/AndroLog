@@ -450,6 +450,7 @@ AndroLog/
 
 * [Maven](https://maven.apache.org/) - Dependency management
 * [Soot](https://soot-oss.github.io/soot/) - Java bytecode analysis and transformation
+* [Frida](https://frida.re/) - Dynamic instrumentation toolkit for runtime coverage
 * [Android SDK](https://developer.android.com/studio) - APK signing and alignment tools
 
 ---
