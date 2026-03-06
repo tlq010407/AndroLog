@@ -1,7 +1,5 @@
 # AndroLog Enhancement Summary
 
-## Completed Enhancements (March 4-6, 2026)
-
 ### NEW: Strict Dual-Edge Branch Coverage & CFG Export (March 6, 2026)
 
 **Files:**
