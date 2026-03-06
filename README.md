@@ -23,6 +23,7 @@ Welcome to **AndroLog**, your comprehensive solution for inserting probes into A
 
 - **Automated Coverage Pipelines** - One-command testing and reporting
 - **Branch Coverage** - Complete if/switch statement coverage
+- **Frida Support** ⭐ NEW - Runtime instrumentation for Kotlin+R8 apps
 - **Safe Mode (`-nr`)** - Handle incompatible apps (Kotlin + R8)
 - **Split APK Support** - Automatic split attribute cleanup
 - **Multi-threading** - Configurable Soot thread count (`-t`)
@@ -42,7 +43,14 @@ Manual interaction workflow:
 ./run_full_coverage_pipeline.sh your_app.apk com.your.package output_folder MY_TAG
 ```
 
-### Option 3: Manual Workflow
+### Option 3: Frida-based Testing (Kotlin+R8 Apps)
+For apps that fail with standard Soot instrumentation:
+```bash
+./run_frida_coverage.sh /path/to/app.apk com.your.package output_folder MY_TAG
+```
+Requires Frida server on device. See [FRIDA_GUIDE.md](FRIDA_GUIDE.md) for setup.
+
+### Option 4: Manual Workflow
 See the [Manual Pipeline](#manual-pipeline) section below.
 
 ---
@@ -50,6 +58,7 @@ See the [Manual Pipeline](#manual-pipeline) section below.
 ## Documentation
 
 - **[COVERAGE_QUICKSTART.md](COVERAGE_QUICKSTART.md)** - Quick reference guide with examples
+- **[FRIDA_GUIDE.md](FRIDA_GUIDE.md)** - Complete Frida integration guide
 - **[ENHANCEMENT_SUMMARY.md](ENHANCEMENT_SUMMARY.md)** - Detailed changelog and improvements
 - **[example_usage.sh](example_usage.sh)** - Executable usage examples
 
@@ -106,6 +115,8 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar [options]
 | `-pkg <name>` | Instrument only specified package |
 | `-t <num>` | Number of threads for Soot ⭐ NEW |
 | `-nr` | No-rewrite mode (safe mode) ⭐ NEW |
+| `-ad` | Auto-detect mode (Soot or Frida) ⭐ NEW |
+| `-frida` | Force Frida runtime instrumentation ⭐ NEW |
 | `-pa <file>` | Parse runtime logs for coverage |
 | `-pam <file>` | Parse logs per minute |
 | `-j <file>` | Output coverage in JSON format |
@@ -168,6 +179,46 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar [options]
 4. **Pauses for manual interaction**
 5. User presses ENTER when done
 6. Collects logs and generates reports
+
+### 3. Frida Testing Pipeline ⭐ NEW
+
+**File:** `run_frida_coverage.sh`
+
+**Use when:** Standard Soot instrumentation fails with Kotlin+R8 apps
+
+**Features:**
+- No APK modification (uses runtime hooks)
+- Avoids VerifyError issues
+- Runtime code coverage collection
+- Same output format as Soot mode
+- Full branch coverage support
+
+**Prerequisites:**
+```bash
+# Install Frida tools on your machine
+pip install frida frida-tools
+
+# Set up Frida server on device (see FRIDA_GUIDE.md)
+```
+
+**Usage:**
+```bash
+./run_frida_coverage.sh <apk> <package> <output_dir> [log_tag]
+```
+
+**Example:**
+```bash
+./run_frida_coverage.sh \
+    myapp.apk \
+    com.example.myapp \
+    frida_test \
+    MYAPP_FRIDA
+```
+
+**Output:**
+- `<output_dir>/frida-agent.js` - Generated instrumentation agent
+- Coverage logs from Frida runtime
+- Same JSON/text reports as Soot mode
 
 ---
 
