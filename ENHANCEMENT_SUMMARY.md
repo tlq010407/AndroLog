@@ -285,7 +285,7 @@ AndroLog/
 - **JAR Location:** `target/androlog-0.1-jar-with-dependencies.jar`
 - **Build Date:** March 4, 2026
 - **Status:** All tests passing, fully functional
-
+```
 ## Usage Recommendations
 
 ### For Java/ProGuard Apps (Recommended)
