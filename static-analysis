@@ -1,0 +1,122 @@
+#!/bin/bash
+
+# Pure Static Analysis Script (Version 2)
+# Uses empty log file to trigger SummaryBuilder analysis
+
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Configuration
+PLATFORMS_PATH="${PLATFORMS_PATH:-/Users/liqi/Library/Android/sdk/platforms}"
+JAR_PATH="target/androlog-0.1-jar-with-dependencies.jar"
+MAPPING_FILE="${ANDROLOG_MAPPING_FILE:-}"
+
+print_msg() {
+    local level=$1
+    local message=$2
+    case $level in
+        "INFO")  echo -e "${BLUE}[INFO]${NC} $message" ;;
+        "SUCCESS") echo -e "${GREEN}[✓]${NC} $message" ;;
+        "ERROR") echo -e "${RED}[✗]${NC} $message" ;;
+        "WARN") echo -e "${YELLOW}[!]${NC} $message" ;;
+    esac
+}
+
+print_header() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}  $1${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+main() {
+    if [ $# -lt 2 ]; then
+        print_header "Pure Static Analysis (Soot Only)"
+        echo ""
+        echo "Usage: $0 <apk_path> <output_dir>"
+        echo ""
+        echo "Example:"
+        echo "  $0 fse-dataset/newpipe.apk output/static_analysis"
+        echo ""
+        exit 1
+    fi
+
+    local apk_path=$1
+    local output_dir="${2:-output/static_analysis}"
+
+    if [ ! -f "$apk_path" ]; then
+        print_msg "ERROR" "APK not found: $apk_path"
+        exit 1
+    fi
+
+    if [ ! -f "$JAR_PATH" ]; then
+        print_msg "ERROR" "JAR not found: $JAR_PATH"
+        print_msg "INFO" "Build with: mvn clean package -DskipTests"
+        exit 1
+    fi
+
+    mkdir -p "$output_dir"
+
+    print_header "Static Analysis: $(basename $apk_path)"
+    print_msg "INFO" "APK: $apk_path"
+    print_msg "INFO" "Output: $output_dir"
+    print_msg "INFO" "Platforms: $PLATFORMS_PATH"
+
+    # Create empty log file (triggers SummaryBuilder analysis even with no logs)
+    touch "$output_dir/empty.log"
+
+    print_msg "INFO" "Running pure static analysis via Soot..."
+    local mapping_args=()
+    if [ -n "$MAPPING_FILE" ] && [ -f "$MAPPING_FILE" ]; then
+        print_msg "INFO" "Using mapping file: $MAPPING_FILE"
+        mapping_args=(-mf "$MAPPING_FILE")
+    fi
+    
+    if java -jar "$JAR_PATH" \
+        -p "$PLATFORMS_PATH" \
+        -a "$apk_path" \
+        -hy -nb \
+        -c -m -s -b \
+        -pa "$output_dir/empty.log" \
+        "${mapping_args[@]}" \
+        -j "$output_dir/coverage_output.json" \
+        -l "DUMMY" > "$output_dir/analysis.log" 2>&1; then
+        print_msg "SUCCESS" "Analysis completed"
+    else
+        print_msg "ERROR" "Analysis failed"
+        tail -100 "$output_dir/analysis.log"
+        return 1
+    fi
+
+    # Display results
+    if [ -f "$output_dir/coverage_output.json" ]; then
+        print_header "Results Summary"
+        
+        
+        local classes=$(cat "$output_dir/coverage_output.json" | jq -r '.coverageSummary.classes.total // 0' 2>/dev/null || echo "0")
+        local methods=$(cat "$output_dir/coverage_output.json" | jq -r '.coverageSummary.methods.total // 0' 2>/dev/null || echo "0")
+        local statements=$(cat "$output_dir/coverage_output.json" | jq -r '.coverageSummary.statements.total // 0' 2>/dev/null || echo "0")
+        local branches=$(cat "$output_dir/coverage_output.json" | jq -r '.coverageSummary.branches.total // 0' 2>/dev/null || echo "0")
+        
+        echo -e "${GREEN}✓ Total Classes:${NC} $classes"
+        echo -e "${GREEN}✓ Total Methods:${NC} $methods"
+        echo -e "${GREEN}✓ Total Statements:${NC} $statements"
+        echo -e "${GREEN}✓ Total Branches:${NC} $branches"
+        echo ""
+        print_msg "INFO" "Pure static analysis - no runtime test executed, coverage is 0."
+        echo ""
+        echo -e "${GREEN}✓ Full Report:${NC} $output_dir/coverage_output.json"
+        
+        # Also show in pretty JSON format
+        print_msg "INFO" "JSON Output:"
+        cat "$output_dir/coverage_output.json" | jq '.' | head -50
+    fi
+}
+
+main "$@"

@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# Shortcut for pure static analysis
+# Usage: static-analysis <apk_path> [output_dir]
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${SCRIPT_DIR}/static-analysis" "$@"
