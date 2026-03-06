@@ -67,7 +67,7 @@ ENDMETHOD
 
 Use this to perform **gap analysis** - identify uncovered branches by cross-referencing with runtime logs.
 
-## 🔧 Manual Pipeline Steps
+## Manual Pipeline Steps
 
 ### 1. Instrument APK
 ```bash
@@ -82,7 +82,7 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar \
     -cfg processing.cfg
 ```
 
-**⚠️ CRITICAL:** 
+**CRITICAL:** 
 - Use **original (uninstrumented) APK** for coverage generation (step 4)
 - Must include **same flags** (`-c -m -s -b`) in both instrumentation AND coverage generation
 - Must use **same log tag** (`-l`) value in both steps
@@ -105,12 +105,12 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar \
     -j coverage_output.json
 ```
 
-**⚠️ CRITICAL:** 
+**CRITICAL:** 
 - Use **original (uninstrumented) APK** for coverage generation (step 4)
 - Must include **same flags** (`-c -m -s -b`) in both instrumentation AND coverage generation
 - Must use **same log tag** (`-l`) value in both steps
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Empty Coverage Report
 **Problem:** `coverage_output.json` shows all zeros  
@@ -187,5 +187,5 @@ grep "YOUR_TAG.*BRANCH=" logfile.txt | wc -l
 
 ---
 
-**Last Updated:** March 4, 2026  
+**Last Updated:** March 6, 2026  
 **Version:** AndroLog v0.1 with split attribute fix and config compatibility improvements

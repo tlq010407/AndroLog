@@ -21,12 +21,12 @@ Welcome to **AndroLog**, your comprehensive solution for inserting probes into A
 
 ### Key Enhancements
 
-- ✅ **Automated Coverage Pipelines** - One-command testing and reporting
-- ✅ **Branch Coverage** - Complete if/switch statement coverage
-- ✅ **Safe Mode (`-nr`)** - Handle incompatible apps (Kotlin + R8)
-- ✅ **Split APK Support** - Automatic split attribute cleanup
-- ✅ **Multi-threading** - Configurable Soot thread count (`-t`)
-- ✅ **JSON & Text Reports** - Structured and human-readable output
+- **Automated Coverage Pipelines** - One-command testing and reporting
+- **Branch Coverage** - Complete if/switch statement coverage
+- **Safe Mode (`-nr`)** - Handle incompatible apps (Kotlin + R8)
+- **Split APK Support** - Automatic split attribute cleanup
+- **Multi-threading** - Configurable Soot thread count (`-t`)
+- **JSON & Text Reports** - Structured and human-readable output
 
 ## Quick Start
 
@@ -412,10 +412,10 @@ See [LICENSE](LICENSE) file for details.
 ## Version History
 
 **Latest:** v0.1 (March 2026)
-- ✅ Branch coverage support (`-b` flag)
-- ✅ Safe mode for incompatible apps (`-nr` flag)
-- ✅ Split APK attribute cleanup
-- ✅ Multi-threading support (`-t` flag)
-- ✅ Automated testing pipelines
-- ✅ JSON and text report generation
-- ✅ Config properties compatibility fix
+- Branch coverage support (`-b` flag)
+- Safe mode for incompatible apps (`-nr` flag)
+- Split APK attribute cleanup
+- Multi-threading support (`-t` flag)
+- Automated testing pipelines
+- JSON and text report generation
+- Config properties compatibility fix
