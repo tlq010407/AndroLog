@@ -121,12 +121,6 @@ AndroLog/
             └── *_logs.txt
 ```
 
-## ✅ Verified Working
-- ✅ Mood Tracker (Java + ProGuard) - Full instrumentation works
-- ✅ OmniNotes (verified in previous tests)
-- ✅ Split APK handling (split attributes removed automatically)
-- ❌ NewPipe (Kotlin + R8) - Fundamental Soot incompatibility (use `-nr` mode)
-
 ## Example Real-World Usage
 
 ```bash
