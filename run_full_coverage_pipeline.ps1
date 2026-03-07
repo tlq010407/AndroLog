@@ -390,7 +390,7 @@ try {
     # -------- Step 6: Generate coverage report --------
     Write-Info "Step 6/6: Generating coverage report..."
     $CoverageOutput = Join-Path $OutputDir "coverage_report.json"
-    $CfgOutput = Join-Path $OutputDir "processing.cfg"
+    $CfgOutput = Join-Path $OutputDir "static_apk.cfg"
 
     Normalize-LogFile -Path $LogFile
 
@@ -438,7 +438,7 @@ try {
     Write-Info "  - Full logcat: $FullLogcat"
     Write-Info "  - Filtered logs: $LogFile ($LogCount entries)"
     Write-Info "  - Coverage JSON: $CoverageOutput"
-    Write-Info "  - Processing CFG: $CfgOutput"
+    Write-Info "  - Static APK CFG: $CfgOutput"
     Write-Info "  - Coverage summary: $SummaryFile"
     Write-Success "=========================================="
 }

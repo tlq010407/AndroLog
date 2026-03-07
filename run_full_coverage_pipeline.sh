@@ -220,7 +220,7 @@ fi
 # Step 6: Generate coverage report
 log_info "Step 6/6: Generating coverage report..."
 COVERAGE_OUTPUT="$OUTPUT_DIR/coverage_report.json"
-CFG_OUTPUT="$OUTPUT_DIR/processing.cfg"
+CFG_OUTPUT="$OUTPUT_DIR/static_apk.cfg"
 
 java -jar "$JAR_PATH" \
     -p "$PLATFORMS_PATH" \
@@ -260,6 +260,6 @@ log_info "  - Instrumented APK: $INSTRUMENTED_APK"
 log_info "  - Full logcat: $FULL_LOGCAT"
 log_info "  - Filtered logs: $LOG_FILE ($LOG_COUNT entries)"
 log_info "  - Coverage JSON: $COVERAGE_OUTPUT"
-log_info "  - Processing CFG: $CFG_OUTPUT"
+log_info "  - Static APK CFG: $CFG_OUTPUT"
 log_info "  - Coverage summary: $SUMMARY_FILE"
 log_success "=========================================="
