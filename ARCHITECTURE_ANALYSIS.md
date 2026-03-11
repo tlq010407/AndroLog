@@ -1,11 +1,11 @@
 # AndroLog Architecture & Frida Hook Analysis
 
-**Date:** March 5, 2026  
+**Date:** March 11, 2026  
 **Version:** AndroLog v0.1
 
 ---
 
-## 📋 Executive Summary
+## Executive Summary
 
 AndroLog is a **dual-mode Android coverage analysis tool** supporting:
 - **Soot-based static instrumentation** (bytecode rewriting)
@@ -15,7 +15,7 @@ This document analyzes all available functions, Frida hook capabilities, and cov
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 ### Core Components
 
@@ -42,7 +42,7 @@ AndroLog
 
 ---
 
-## 🎯 Coverage Metrics Tracked
+## Coverage Metrics Tracked
 
 ### 1. **Classes** (`-c`)
 - **What:** All Java/Kotlin classes in app
@@ -74,11 +74,11 @@ AndroLog
 
 ---
 
-## 🔧 Frida Hook Capabilities
+## Frida Hook Capabilities
 
 ### What Frida **CAN** Hook
 
-#### ✅ **1. Class Enumeration**
+#### **1. Class Enumeration**
 ```javascript
 Java.enumerateLoadedClasses({
   onMatch: function(className) {
@@ -86,11 +86,11 @@ Java.enumerateLoadedClasses({
   }
 })
 ```
-- **Works:** ✅ Real-time class discovery
+- **Works:** Real-time class discovery
 - **Coverage:** Classes loaded during app execution
 - **Limitation:** Only sees classes actually loaded
 
-#### ✅ **2. Method Execution (via Method.invoke)**
+#### **2. Method Execution (via Method.invoke)**
 ```javascript
 var Method = Java.use('java.lang.reflect.Method');
 Method.invoke.overload('java.lang.Object', '[Ljava.lang.Object;').implementation = function(receiver, args) {
@@ -100,27 +100,27 @@ Method.invoke.overload('java.lang.Object', '[Ljava.lang.Object;').implementation
   return this.invoke(receiver, args);
 };
 ```
-- **Works:** ✅ Catches reflected method calls
+- **Works:** Catches reflected method calls
 - **Coverage:** Methods invoked via reflection (common in Android framework)
 - **Limitation:** Misses direct non-reflected calls
 
-#### ✅ **3. Statement Tracking (Synthetic)**
+#### **3. Statement Tracking (Synthetic)**
 ```javascript
 // For each hooked method
 Log.d(TAG, 'STATEMENT=' + methodSig + '|1');
 ```
-- **Works:** ⚠️ Partial (synthetic markers)
+- **Works:** Partial (synthetic markers)
 - **Coverage:** Statement-level tracking via proxy
 - **Limitation:** Not actual Jimple statement tracking, just method entry
 
-#### ❌ **4. Branch Tracking**
+#### **4. Branch Tracking**
 - **Status:** Not implemented in current Frida agent
 - **Reason:** Would require per-branch hooks (high overhead)
 - **Workaround:** Use Soot mode for branch analysis
 
 ---
 
-## 🔬 Frida Agent Deep Dive
+## Frida Agent Deep Dive
 
 ### Current Implementation (`FridaInstrumentation.generateFridaAgent()`)
 
@@ -173,7 +173,7 @@ setTimeout(function() {
 
 ---
 
-## 📊 Coverage Report Generation
+## Coverage Report Generation
 
 ### Workflow
 
@@ -224,7 +224,7 @@ setTimeout(function() {
 
 ---
 
-## 🆚 Soot vs Frida Comparison
+## Soot vs Frida Comparison
 
 | Feature | Soot Mode | Frida Mode |
 |---------|-----------|------------|
@@ -240,7 +240,7 @@ setTimeout(function() {
 
 ---
 
-## 🚀 What Frida **Could** Hook (Future)
+## What Frida **Could** Hook (Future)
 
 ### 1. **Direct Method Calls**
 ```javascript
@@ -291,9 +291,9 @@ Interceptor.attach(Module.findExportByName("libart.so", "art::ArtMethod::Invoke"
 
 ---
 
-## 🔧 Current Implementation Status
+## Current Implementation Status
 
-### ✅ Fully Implemented
+### Fully Implemented
 - Pure static analysis (Soot with `-no-bodies` for Kotlin)
 - Frida class enumeration
 - Frida method hooking (reflection-based)
@@ -301,11 +301,11 @@ Interceptor.attach(Module.findExportByName("libart.so", "art::ArtMethod::Invoke"
 - JSON/text coverage reports
 - Automated scripts (static, monkey mode toggle)
 
-### ⚠️ Partially Working
+### Partially Working
 - Frida statement tracking (synthetic only, not true Jimple)
 - Monkey mode log collection (0% coverage issue - Frida agent not injecting properly)
 
-### ❌ Not Implemented
+### Not Implemented
 - Frida branch tracking
 - Frida direct method call hooks (non-reflection)
 - Real-time coverage dashboard
@@ -313,7 +313,7 @@ Interceptor.attach(Module.findExportByName("libart.so", "art::ArtMethod::Invoke"
 
 ---
 
-## 📝 Current Limitations
+## Current Limitations
 
 ### Frida Mode Issues
 1. **Monkey test produces 0% coverage**
@@ -344,7 +344,7 @@ Interceptor.attach(Module.findExportByName("libart.so", "art::ArtMethod::Invoke"
 
 ---
 
-## 🎯 Recommended Usage
+## Recommended Usage
 
 ### For Pure Static Analysis
 ```bash
@@ -374,7 +374,73 @@ java -jar androlog.jar -p platforms/ -a app.apk -c -m -s -b -pa logs.txt -j repo
 
 ---
 
-## 🔍 How to Verify Coverage is Working
+## Cold Path Extraction Pipeline (New)
+
+To improve branch coverage targeting, the project now includes a two-step cold path workflow:
+
+1. `branch_coverage_analysis.py`
+2. `probe_gen.py`
+
+This pipeline converts uncovered branch data into LLM-ready, executable test generation tasks.
+
+### Step 1: Uncovered Branch Extraction (`branch_coverage_analysis.py`)
+
+**Purpose:**
+- Compare static CFG branches (`processing.cfg`) with runtime executed branches (log file)
+- Export uncovered branches for follow-up probing
+
+**Key behavior (current):**
+- Supports `--out-dir`
+- Default output directory is the same directory as `--cfg`
+- Outputs:
+  - `uncovered_branches.txt`
+  - `uncovered_branches.csv`
+
+### Step 2: Probe Prompt Generation (`probe_gen.py`)
+
+**Purpose:**
+- Read uncovered branches (`.txt` or `.csv`)
+- Enrich each branch with APK method bytecode context using AndroGuard
+- Generate prompts for LLM-driven test/probe creation
+
+**Key behavior (current):**
+- Supports `--out-dir`
+- Default output directory is the same directory as `--apk`
+- Outputs markdown + JSONL prompt artifacts
+- Prompt template now enforces **strict JSON output** from target LLM
+
+### Strict JSON Test Case Schema (Requested from LLM)
+
+Each generated prompt asks the LLM to return JSON objects containing:
+- `test_id`
+- `type` (`adb_probe|automation_draft`)
+- `target_uid`
+- `target_edge`
+- `requires_sdk_min`
+- `preconditions`
+- `commands`
+- `expected_signal`
+- `verification_steps`
+- `coverage_verification`
+- `risk`
+
+### Coverage Hard-Check Requirement
+
+The generated prompt also requires post-probe verification:
+1. Re-run branch log collection
+2. Re-run `branch_coverage_analysis.py`
+3. Verify target `UID + EDGE` is no longer uncovered (or mark evidence inconclusive)
+
+### Why This Matters
+
+This closes the loop from "coverage gap discovery" to "actionable test generation":
+- Not only identifies uncovered branches
+- Also provides structured guidance to generate concrete, reproducible probes
+- Improves repeatability for iterative coverage growth
+
+---
+
+## How to Verify Coverage is Working
 
 ### Check 1: Log Collection
 ```bash
@@ -407,7 +473,7 @@ cat output/frida_runtime.log | grep "agent ready"
 
 ---
 
-## 🚀 Future Enhancement Opportunities
+## Future Enhancement Opportunities
 
 ### High Priority
 1. **Fix Monkey Mode Frida Injection**
@@ -445,7 +511,7 @@ cat output/frida_runtime.log | grep "agent ready"
 
 ---
 
-## 📚 Key Files Reference
+## Key Files Reference
 
 | File | Purpose | Lines |
 |------|---------|-------|
@@ -456,10 +522,13 @@ cat output/frida_runtime.log | grep "agent ready"
 | `BranchLogger.java` | Branch instrumentation | 200 |
 | `static-analysis` | Pure static script | 113 |
 | `run_frida_coverage.sh` | Frida wrapper script | 314 |
+| `branch_coverage_analysis.py` | Uncovered branch extraction from CFG + logs | Python |
+| `probe_gen.py` | Cold path prompt generation with APK bytecode context | Python |
+| `COLD_PATH_PIPELINE_SUMMARY.md` | End-to-end cold path workflow documentation | Markdown |
 
 ---
 
-## 🎓 Conclusion
+## Conclusion
 
 AndroLog provides a **flexible dual-mode architecture**:
 
@@ -474,6 +543,3 @@ Current Frida implementation focuses on **stability over coverage depth**:
 
 For production coverage testing, **use Soot mode when possible**. Use Frida mode as a fallback for incompatible apps, accepting lower statement/branch granularity.
 
----
-
-**End of Analysis**
