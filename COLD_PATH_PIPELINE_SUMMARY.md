@@ -65,6 +65,8 @@ python .\branch_coverage_analysis.py \
 ### What It Does
 Generates LLM-ready probe prompts from uncovered branches by attaching static bytecode context from APK methods (via AndroGuard).
 
+Latest behavior: generated prompts now instruct the LLM to return strict JSON test cases (not free-form text), so outputs are easier to parse and automate.
+
 ### Inputs
 - `--apk`: APK path
 - `--uncovered`: uncovered file (`.txt` or `.csv`)
@@ -80,7 +82,8 @@ Generates LLM-ready probe prompts from uncovered branches by attaching static by
 2. Analyze APK with AndroGuard (`AnalyzeAPK`).
 3. Build app-method index and match branch class/method to method bodies.
 4. Extract bytecode instructions for context.
-5. Generate per-branch probe prompts.
+5. Infer simple SDK hints from branch condition tokens when possible (for example, FALSE edge on `< 22` implies `SDK >= 22`).
+6. Generate per-branch probe prompts with strict JSON output requirements.
 6. Export markdown + jsonl artifacts.
 
 ### Outputs
@@ -93,6 +96,24 @@ Each JSONL line includes:
 - method descriptor
 - instruction list
 - generated prompt text
+
+Prompt-level JSON schema requirement (asked from target LLM):
+- `test_id`
+- `type` (`adb_probe|automation_draft`)
+- `target_uid`
+- `target_edge`
+- `requires_sdk_min`
+- `preconditions`
+- `commands`
+- `expected_signal`
+- `verification_steps`
+- `coverage_verification`
+- `risk`
+
+Coverage hard-check requirement in generated prompts:
+- re-run branch log collection after probe
+- re-run `branch_coverage_analysis.py`
+- verify target `UID + EDGE` is no longer uncovered (or explain inconclusive evidence)
 
 ### Typical Command (Top 50)
 ```powershell
@@ -108,3 +129,5 @@ python .\probe_gen.py \
 - Run `branch_coverage_analysis.py` first, then `probe_gen.py`.
 - Keep outputs next to instrumented artifacts for easier traceability.
 - Iterate: run probes, collect new logs, recompute uncovered branches, regenerate prompts.
+- For best LLM quality, feed one cold branch block (or one JSONL record) at a time.
+- Fill app context when sending prompts to LLM: package name, main activity, device/Android version, and allowed adb command scope.

@@ -203,6 +203,19 @@ def extract_method_context(m_analysis, max_instructions: int) -> MethodContext:
     )
 
 
+def infer_sdk_min_from_cond(cond: str, edge: str) -> Optional[int]:
+    """
+    Infer a minimum SDK hint from simple conditions like '$i0_<_22'.
+    For FALSE edge on '< N', branch implies SDK >= N.
+    """
+    cond = (cond or "").strip()
+    # Common token shape from branch logs: $i0_<_22
+    match = re.search(r"<_\s*([0-9]+)", cond)
+    if match and edge == "FALSE":
+        return int(match.group(1))
+    return None
+
+
 def make_prompt(record: BranchRecord, ctx: Optional[MethodContext]) -> str:
     class_for_prompt = record.class_name
     method_for_prompt = record.method_name
@@ -215,15 +228,35 @@ def make_prompt(record: BranchRecord, ctx: Optional[MethodContext]) -> str:
     if ctx is not None and ctx.instructions:
         insn_block = "\n".join(ctx.instructions)
 
+    sdk_hint = infer_sdk_min_from_cond(record.cond, record.edge)
+    sdk_hint_line = (
+        f"- Inferred SDK minimum for this edge: {sdk_hint}\n"
+        if sdk_hint is not None
+        else "- Inferred SDK minimum for this edge: unknown\n"
+    )
+
     return (
-        "### Task: Generate Android probe commands for a cold branch\n\n"
+        "### Task: Generate Android test cases for a cold branch\n\n"
         "You are a mobile security testing expert. Analyze the cold branch context below\n"
-        "and propose concrete probes to trigger it.\n\n"
+        "and propose concrete, executable tests to trigger it.\n\n"
+        "Output requirements:\n"
+        "- Return STRICT JSON only (no markdown, no code fences, no comments).\n"
+        "- Return a JSON array with 3-6 objects.\n"
+        "- Include BOTH kinds across the array: `adb_probe` and `automation_draft`.\n"
+        "- Prefer non-destructive steps first.\n"
+        "- Commands must be directly executable shell commands (no pseudocode).\n\n"
+        "App context placeholders (fill or infer safely):\n"
+        "- package: <APP_PACKAGE>\n"
+        "- main activity: <MAIN_ACTIVITY>\n"
+        "- device/os: <DEVICE_AND_ANDROID_VERSION>\n"
+        "- allowed tools: adb shell am, adb shell cmd, adb shell input, logcat\n\n"
         f"Cold branch record:\n- Raw: {record.raw}\n"
         f"- Branch type: {record.branch_type}\n"
         f"- Edge: {record.edge}\n"
         f"- Condition token: {record.cond}\n"
-        f"- UID: {record.uid}\n\n"
+        f"- UID: {record.uid}\n"
+        f"{sdk_hint_line}"
+        "\n"
         f"Method context:\n- Class: {class_for_prompt}\n"
         f"- Method: {method_for_prompt}\n"
         f"- Return type: {record.return_type}\n"
@@ -231,12 +264,28 @@ def make_prompt(record: BranchRecord, ctx: Optional[MethodContext]) -> str:
         f"- Descriptor: {(ctx.descriptor if ctx else 'N/A')}\n\n"
         "Instructions:\n"
         f"{insn_block}\n\n"
-        "Please provide:\n"
-        "1. Likely trigger condition(s) (Intent action/extras, deep-link URI, broadcast, service start,"
-        " shared pref state, file path, permission state, timing/state preconditions).\n"
-        "2. One or more executable probe commands using `adb shell am` or `adb shell cmd` (no pseudocode).\n"
-        "3. A minimal verification plan: which log/tag/output to check to confirm branch execution.\n"
-        "4. Risk note if trigger may be destructive and a safer alternative probe.\n"
+        "JSON schema for EACH object:\n"
+        "{\n"
+        "  \"test_id\": \"string\",\n"
+        "  \"type\": \"adb_probe|automation_draft\",\n"
+        "  \"target_uid\": \""
+        f"{record.uid}"
+        "\",\n"
+        "  \"target_edge\": \""
+        f"{record.edge}"
+        "\",\n"
+        "  \"requires_sdk_min\": number|null,\n"
+        "  \"preconditions\": [\"string\", \"...\"],\n"
+        "  \"commands\": [\"string\", \"...\"],\n"
+        "  \"expected_signal\": [\"string\", \"...\"],\n"
+        "  \"verification_steps\": [\"string\", \"...\"],\n"
+        "  \"coverage_verification\": [\"string\", \"...\"],\n"
+        "  \"risk\": \"low|medium|high\"\n"
+        "}\n\n"
+        "Coverage verification requirement (must include):\n"
+        "- Re-run branch log collection after probe.\n"
+        "- Re-run branch_coverage_analysis.py.\n"
+        "- Assert this branch UID+EDGE is no longer uncovered, or explain why evidence is inconclusive.\n"
     )
 
 
