@@ -7,8 +7,5 @@ src/main/resources/config.properties
 fse-dataset/
 omninote_instrumented_apk/
 timeplanner-tests/
-<<<<<<< HEAD
 Test/
-=======
 output/
->>>>>>> 1167109 (feat: Enhance AndroLog with CFG Exporting and Native Signal Tracking)
