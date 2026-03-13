@@ -3,9 +3,9 @@
 ### NEW: Strict Dual-Edge Branch Coverage & CFG Export (March 6, 2026)
 
 **Files:**
-- `src/main/java/com/jordansamhi/androlog/BranchDescriptorUtil.java` (NEW)
-- `src/main/java/com/jordansamhi/androlog/CfgExporter.java` (NEW)
-- `src/main/java/com/jordansamhi/androlog/BranchLogger.java` (UPDATED)
+- `src/main/java/com/jordansamhi/androlog/BranchDescriptorUtil.java` 
+- `src/main/java/com/jordansamhi/androlog/CfgExporter.java` (UPDATED)
+- `src/main/java/com/jordansamhi/androlog/BranchLogger.java` 
 - `src/main/java/com/jordansamhi/androlog/SummaryBuilder.java` (UPDATED)
 - `src/main/java/com/jordansamhi/androlog/LogParser.java` (UPDATED)
 - `src/main/java/com/jordansamhi/androlog/Main.java` (UPDATED)
@@ -31,10 +31,11 @@ BRANCH=<method_sig>|SWITCH|<location>|CASE=DEFAULT
 ```
 
 **Benefits:**
-- Location tracking: Source line (L123) or identity hash (U3c7a65ec) if unavailable
-- Edge type: TRUE/FALSE for IF, case values for SWITCH, DEFAULT for uncovered default path
-- Condition expression: Jimple IR representation for understanding branch logic
-- Unique identification: No hash collisions, can correlate with CFG
+- Source-aware location tracking: L123 if source line exists, otherwise stable fallback token such as U8f32c1ab
+- True edge distinction for if statements
+- Explicit case/default distinction for switch
+- Human-readable condition information in Jimple form
+- Better matching between runtime logs, CFG, and exported features
 
 #### 2. Strict Dual-Edge Coverage for IF Statements
 Traditional single-branch counting is replaced with **dual-edge coverage**:
@@ -50,11 +51,14 @@ if (user != null) {  // Branch point
 ```
 
 #### 3. Complete SWITCH Coverage including DEFAULT
-- Each `switch` case is tracked individually with its value
+Each `switch` case is tracked individually with its value:
 - **DEFAULT case is explicitly tracked** as a separate edge
 - Enables identification of missing case handlers or default path gaps
-
-#### 4. Processing CFG Export (NEW)
+This makes it possible to identify:
+- missing case coverage
+- never-triggered fallback/default behavior
+- handler gaps in obfuscated apps
+#### 4. Static apl CFG Export
 Added `-cfg` option to export complete control flow graph with embedded branch metadata:
 
 **CFG Format:**
@@ -69,7 +73,7 @@ ENDMETHOD
 
 **Usage:**
 ```bash
-java -jar androlog.jar -p platforms -a app.apk -l TAG -c -m -s -b -pa logs.txt -cfg processing.cfg
+java -jar androlog.jar -p platforms -a app.apk -l TAG -c -m -s -b -pa logs.txt -cfg static_apk.cfg
 ```
 
 **Applications:**
@@ -78,30 +82,134 @@ java -jar androlog.jar -p platforms -a app.apk -l TAG -c -m -s -b -pa logs.txt -
 - Coverage correlation: Cross-reference CFG nodes with runtime logs
 - Debugging: Identify complex conditional logic
 
-#### 5. BranchDescriptorUtil Utility Class
-New utility for generating consistent, parseable branch descriptors:
-- Extracts source line numbers or identity hash codes for location
-- Handles both TableSwitchStmt and LookupSwitchStmt case resolution
-- Sanitizes condition expressions to prevent parsing errors
+#### 5. NEW: Semantic Branch Feature Export (static_features.jsonl)
+Added a new semantic feature layer for each branch.
 
-#### 6. Updated LogParser for Precise Branch Matching
-Enhanced branch matching logic:
-- Full branch key matching instead of prefix-only
-- Backward compatibility with method-level fallback
-- Handles edge-type filtering (TRUE/FALSE/CASE=value)
+**Output File**
+```bash
+static_features.jsonl
+```
+Each line is a JSON object describing one branch.
 
-#### 7. Full Pipeline Integration
-- `run_full_coverage_pipeline.sh` automatically calls CFG generation
-- Final report displays `processing.cfg` output path
-- All JSON/text summary generation includes CFG exports
+**Example**
+```json
+{
+    "branch_descriptor":"BRANCH=<p2.d$a: void run()>|IF|Ueeff9a2e|EDGE=TRUE|COND=$z0____0",
+    "branch_id":"Bb930d2e0","
+    branch_kind":"IF",
+    "branch_location":"Ueeff9a2e",
+    "edge":"TRUE","case_label":"",
+    "condition":"$z0____0",
+    "path_constraints":["$z0____0"],
+    
+    "stmt_text":"if $z0 == 0 goto return",
+    
+    "class":"p2.d$a",
+    "method":"run",
+    "method_signature":"<p2.d$a: void run()>",
+    "package":"p2",
+    
+    "code_origin":"app",
+    "is_library":false,
+    
+    "component_type":"none",
+    "exported":false,
+    "entrypoint":false,
+    
+    "api_calls":[],
+    "network_apis":[],
+    "file_apis":[],
+    "reflection_apis":[],
+    "crypto_apis":[],
+    
+    "strings":[],
+    "urls":[],
+    "commands":[],
+    
+    "sdk_checks":[],
+    "environment_checks":[],
+    
+    "loop_context":true,
+    "async_context":false,
+    "thread_context":true
+    }
+```
+##### **Branch Semantic Fields**
+**Core Metadata**
+- branch_descriptor: full original branch descriptor
+- branch_id: short stable identifier derived from descriptor hash
+- branch_kind: IF or SWITCH
+- branch_location: source line or stable fallback token
+- edge: TRUE / FALSE for if
+- case_label: switch case value or DEFAULT
+- condition: sanitized branch condition
+- path_constraints: pure constraint list, such as:
+```json
+["$z0____0"]
+```
 
-**Example Output:**
+**Code Context**
+- stmt_text
+- class
+- method
+- method_signature
+- package
+
+**Origin Metadata**
+- code_origin: "app" or "library"
+- is_library: boolean
+
+**API Behavior**
+- api_calls
+- network_apis
+- file_apis
+- reflection_apis
+- crypto_apis
+
+**Behavioral Signals**
+- strings
+- urls
+- commands
+- loop_context
+- async_context
+- thread_context
+#### 6. BranchDescriptorUtil Utility Class
+New utility for generating consistent, parseable branch descriptors.
+
+**Responsibilities**
+- builds readable descriptors for if and switch
+- resolves switch labels for both TableSwitchStmt and LookupSwitchStmt
+- sanitizes condition text to avoid parsing ambiguity
+- provides source-line-based location when available
+-mprovides stable fallback location token when line info is unavailable
+
+#### 7. Updated LogParser for Precise Branch Matching
+
+Branch matching logic is now more precise.
+
+**Improvements**
+- full branch-key matching instead of weak prefix-only matching
+- better alignment with strict dual-edge semantics
+- better support for switch case/default matching
+- compatibility with descriptor-based runtime logs
+
+#### 8. Full Pipeline Integration
+The coverage pipeline now supports:
+- instrumentation
+- runtime log collection
+- log parsing
+- coverage summary generation
+- CFG export
+- static semantic feature export
+
+**Example Generated Files:**
 ```
 Files generated:
   - Instrumented APK: fse-dataset/oceanex_test/OceanEx.apk
-  - Filtered logs: fse-dataset/oceanex_test/oceanex_test_logs.txt (15432 entries)
+  - Filtered logs: fse-dataset/oceanex_test/oceanex_test_logs.txt
   - Coverage JSON: fse-dataset/oceanex_test/coverage_report.json
-  - Processing CFG: fse-dataset/oceanex_test/processing.cfg ⭐ NEW
+  - Processing CFG: fse-dataset/oceanex_test/processing.cfg
+  - Static features: fse-dataset/oceanex_test/static_features.jsonl
   - Coverage summary: fse-dataset/oceanex_test/coverage_summary.txt
 ```
 
@@ -110,22 +218,9 @@ Files generated:
 ### 1. BranchLogger Register Optimization
 **File:** `src/main/java/com/jordansamhi/androlog/BranchLogger.java`
 
-**Problem:** Branch logging injection was creating intermediate String local variables, disturbing register type flow and potentially causing DEX verification errors.
+**Problem:** Branch logging injection previously created intermediate local string variables, which could disturb register type flow and increase risk of DEX verification issues.
 
 **Solution:** Modified `insertLogStatement()` to directly pass `StringConstant.v(message)` as argument to `Log.d()` invocation, eliminating unnecessary local variable creation.
-
-**Code Change:**
-```java
-// Before:
-Local msgLocal = Jimple.v().newLocal("logMsg", RefType.v("java.lang.String"));
-body.getLocals().add(msgLocal);
-AssignStmt assignStmt = Jimple.v().newAssignStmt(msgLocal, StringConstant.v(message));
-units.insertBefore(assignStmt, u);
-// ... pass msgLocal to Log.d()
-
-// After:
-// Directly pass StringConstant.v(message) to Log.d() arguments
-```
 
 ### 2. Split APK Attribute Cleanup
 **File:** `src/main/java/com/jordansamhi/androlog/ApkPreparator.java`
@@ -138,28 +233,11 @@ units.insertBefore(assignStmt, u);
 3. Rebuilds the APK
 4. Signs and aligns the cleaned APK
 
-**Code Addition:**
-```java
-private void removeSplitAttributes() throws IOException, InterruptedException {
-    // Decode APK with apktool
-    // Remove android:requiredSplitTypes and android:splitTypes from manifest
-    // Build cleaned APK
-}
-```
 
 ### 3. Config Properties Compatibility Fix
 **File:** `src/main/java/com/jordansamhi/androlog/ApkPreparator.java`
 
 **Problem:** Tool configuration reading was inconsistent. Code expected `apksignerPath` and `zipalignPath` keys, but actual `config.properties` used `apksigner` and `zipalign`.
-
-**Solution:** Added fallback logic in constructor:
-```java
-String apksignerKey = cfg.getProperty("apksigner");
-if (apksignerKey == null) {
-    apksignerKey = cfg.getProperty("apksignerPath");
-}
-// Same for zipalign
-```
 
 ### 4. Safe Mode Implementation
 **File:** `src/main/java/com/jordansamhi/androlog/Main.java`
@@ -170,17 +248,6 @@ if (apksignerKey == null) {
 - Added `-nr` (no-rewrite) command line option
 - Implemented auto-detection: if no instrumentation flags are specified, automatically skip Soot processing
 - Implemented `copyOriginalApkToOutput()` to preserve original APK unchanged
-
-**Code Addition:**
-```java
-options.addOption(new CommandLineOption("no-rewrite", "nr", 
-    "Skip Soot rewrite and copy original APK to output", false, false));
-
-if (noRewrite || !hasInstrumentation) {
-    copyOriginalApkToOutput(inputApk, outputPath);
-    return;
-}
-```
 
 ### 5. Complete Automation Scripts
 
@@ -306,21 +373,14 @@ java -jar target/androlog-0.1-jar-with-dependencies.jar \
 
 ## Known Limitations
 
-1. **Kotlin + R8 Optimization:** Soot cannot reliably transform highly optimized Kotlin bytecode
-2. **Coverage Percentages:** Low percentages (0.8-1.7%) are normal for short monkey tests
-3. **Library Code:** Includes all libraries by default; use `-n` flag to exclude libraries
-4. **Emulator Required:** Scripts assume `emulator-5554` device name
-
-## Future Improvements
-
-1. Add support for custom emulator device names
-2. Implement retry logic for flaky monkey tests
-3. Add coverage diff comparison between test runs
-4. Support for multiple concurrent test devices
-5. Integration with CI/CD pipelines
+1.	**Kotlin + R8 optimization**: Soot still cannot reliably transform some highly optimized Kotlin bytecode.
+2.	**Low coverage percentages**: Short monkey runs often produce low percentages such as 0.8% - 1.7%; this is expected.
+3.	**Library code included by default**: Use -n to exclude libraries.
+4.	**Scripts assume emulator defaults**: Some scripts still assume emulator-5554.
+5.	**Semantic features are heuristic**: Fields such as loop_context, async_context, and API categories are heuristic, not fully semantic ground truth.
 
 ---
 
-**Version:** AndroLog v0.1 Enhanced (Strict Branch Coverage)
-**Date:** March 6, 2026  
+**Version:** AndroLog v0.2 Enhanced (Strict Branch Coverage + CFG + Semantic Features)
+**Date:** March 13, 2026  
 **Contributors:** Enhanced instrumentation, split APK handling, automation pipeline, strict dual-edge branch coverage & CFG export

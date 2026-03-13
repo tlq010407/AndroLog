@@ -186,6 +186,9 @@ public class CfgExporter {
         boolean threadContext = detectThreadContext(method);
         boolean asyncContext = detectAsyncContext(method);
 
+        boolean isLibrary = LibrariesManager.v().isLibrary(sootClass);
+        String codeOrigin = isLibrary ? "library" : "app";
+
         String json = "{"
                 + "\"branch_descriptor\":\"" + escapeJson(branchDescriptor) + "\","
                 + "\"branch_id\":\"" + escapeJson(parsed.branchId) + "\","
@@ -202,6 +205,9 @@ public class CfgExporter {
                 + "\"method\":\"" + escapeJson(method.getName()) + "\","
                 + "\"method_signature\":\"" + escapeJson(method.getSignature()) + "\","
                 + "\"package\":\"" + escapeJson(sootClass.getPackageName()) + "\","
+
+                + "\"code_origin\":\"" + codeOrigin + "\","
+                + "\"is_library\":" + isLibrary + ","
 
                 + "\"component_type\":\"none\","
                 + "\"exported\":false,"
@@ -258,16 +264,17 @@ public class CfgExporter {
     }
 
     private List<String> buildPathConstraints(ParsedBranchDescriptor parsed) {
+
         List<String> result = new ArrayList<>();
+
         if (parsed.condition != null && !parsed.condition.isEmpty()) {
-            if (parsed.edge != null && !parsed.edge.isEmpty()) {
-                result.add("EDGE=" + parsed.edge + ": " + parsed.condition);
-            } else {
-                result.add(parsed.condition);
-            }
-        } else if (parsed.caseLabel != null && !parsed.caseLabel.isEmpty()) {
-            result.add("CASE=" + parsed.caseLabel);
+            result.add(parsed.condition);
         }
+
+        if (parsed.caseLabel != null && !parsed.caseLabel.isEmpty()) {
+            result.add(parsed.caseLabel);
+        }
+
         return result;
     }
 
@@ -444,41 +451,48 @@ public class CfgExporter {
     }
 
     private boolean detectLoopContext(String stmtText, List<String> apiCalls, SootMethod method) {
-        String lowerStmt = stmtText.toLowerCase();
 
-        if (lowerStmt.contains("hasnext")) {
-            return true;
-        }
+        boolean seenIterator = false;
+        boolean seenHasNext = false;
+        boolean seenNext = false;
 
         for (String api : apiCalls) {
-            String lowerApi = api.toLowerCase();
-            if (lowerApi.contains("java.util.iterator")
-                    || lowerApi.contains(" iterator(")
-                    || lowerApi.contains(" hasnext(")
-                    || lowerApi.contains(" next(")) {
-                return true;
+            String lower = api.toLowerCase();
+
+            if (lower.contains("iterator(")) {
+                seenIterator = true;
             }
+
+            if (lower.contains("hasnext(")) {
+                seenHasNext = true;
+            }
+
+            if (lower.contains(" next(")) {
+                seenNext = true;
+            }
+        }
+
+        if (seenIterator && seenHasNext && seenNext) {
+            return true;
         }
 
         try {
             Body body = method.retrieveActiveBody();
-            boolean seenIterator = false;
-            boolean seenHasNextOrNext = false;
 
             for (Unit unit : body.getUnits()) {
+
                 String u = sanitize(unit.toString()).toLowerCase();
-                if (u.contains("iterator()") || u.contains("java.util.iterator")) {
-                    seenIterator = true;
-                }
-                if (u.contains("hasnext()") || u.contains("next()")) {
-                    seenHasNextOrNext = true;
-                }
-                if (seenIterator && seenHasNextOrNext) {
+
+                if (u.contains("iterator(")) seenIterator = true;
+                if (u.contains("hasnext(")) seenHasNext = true;
+                if (u.contains(" next(")) seenNext = true;
+
+                if (seenIterator && seenHasNext && seenNext) {
                     return true;
                 }
             }
-        } catch (Throwable ignored) {
-        }
+
+        } catch (Throwable ignored) {}
 
         return false;
     }
