@@ -1,6 +1,6 @@
 # AndroLog Enhancement Summary
 
-### NEW: Strict Dual-Edge Branch Coverage & CFG Export (March 6, 2026)
+## NEW: Strict Dual-Edge Branch Coverage, CFG Export, and Semantic Branch Features (March 2026)
 
 **Files:**
 - `src/main/java/com/jordansamhi/androlog/BranchDescriptorUtil.java` 
