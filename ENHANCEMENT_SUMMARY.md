@@ -95,8 +95,8 @@ Each line is a JSON object describing one branch.
 ```json
 {
     "branch_descriptor":"BRANCH=<p2.d$a: void run()>|IF|Ueeff9a2e|EDGE=TRUE|COND=$z0____0",
-    "branch_id":"Bb930d2e0","
-    branch_kind":"IF",
+    "branch_id":"Bb930d2e0",
+    "branch_kind":"IF",
     "branch_location":"Ueeff9a2e",
     "edge":"TRUE","case_label":"",
     "condition":"$z0____0",
