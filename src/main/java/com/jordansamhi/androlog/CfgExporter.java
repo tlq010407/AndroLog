@@ -1,6 +1,5 @@
 package com.jordansamhi.androlog;
 
-import com.jordansamhi.androspecter.files.LibrariesManager;
 import soot.Body;
 import soot.Scene;
 import soot.SootClass;
@@ -18,13 +17,24 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import com.jordansamhi.androspecter.files.LibrariesManager;
 
 public class CfgExporter {
-    // CfgExporter: Exports control flow graphs and static features for methods in application classes
+    // Exports CFG and per-branch static semantic features.
+
+    private static final Pattern ANGLE_API_PATTERN = Pattern.compile("<([^<>]+)>");
+    private static final Pattern STRING_LITERAL_PATTERN = Pattern.compile("\"((?:\\\\.|[^\"\\\\])*)\"");
+    private static final Pattern URL_PATTERN = Pattern.compile("(https?://[^\\s\"'>]+)");
 
     private final boolean includeLibraries;
     private final String targetPackage;
@@ -35,7 +45,6 @@ public class CfgExporter {
     }
 
     public void export(String outputPath) throws IOException {
-            // Main export method: writes CFG and static features to files
         Path path = Paths.get(outputPath);
         Path parent = path.getParent();
         if (parent != null) {
@@ -68,7 +77,6 @@ public class CfgExporter {
     }
 
     private boolean isTargetClass(SootClass sootClass) {
-            // Checks if the class should be included based on library and package filters
         if (!includeLibraries && LibrariesManager.v().isLibrary(sootClass)) {
             return false;
         }
@@ -81,12 +89,10 @@ public class CfgExporter {
             SootClass sootClass,
             SootMethod method
     ) throws IOException {
-        // Export CFG for a single method
         Body body;
         try {
             body = method.retrieveActiveBody();
         } catch (Throwable ignored) {
-            // Skip methods that cannot retrieve body
             return;
         }
 
@@ -107,7 +113,6 @@ public class CfgExporter {
             int nodeIndex = indices.get(unit);
             Stmt stmt = (Stmt) unit;
             int lineNumber = stmt.getJavaSourceStartLineNumber();
-            // Write node info for CFG
 
             writer.write(String.format(
                     "NODE %d L%s %s%n",
@@ -116,7 +121,6 @@ public class CfgExporter {
                     sanitize(stmt.toString())
             ));
 
-            // Handle branch statements (if/switch) and write features
             if (stmt instanceof IfStmt) {
                 IfStmt ifStmt = (IfStmt) stmt;
 
@@ -143,7 +147,6 @@ public class CfgExporter {
                 writeFeature(featuresWriter, branchDefault, sootClass, method, stmt);
             }
 
-            // Write edges for CFG
             List<Unit> successors = graph.getSuccsOf(unit);
             for (Unit successor : successors) {
                 Integer successorIndex = indices.get(successor);
@@ -154,87 +157,81 @@ public class CfgExporter {
         }
 
         writer.write("ENDMETHOD\n\n");
-        // End of method CFG
     }
 
-        private void writeFeature(
-                BufferedWriter featuresWriter,
-                String branchDescriptor,
-                SootClass sootClass,
-                SootMethod method,
-                Stmt stmt
-        ) throws IOException {
+    private void writeFeature(
+            BufferedWriter featuresWriter,
+            String branchDescriptor,
+            SootClass sootClass,
+            SootMethod method,
+            Stmt stmt
+    ) throws IOException {
 
-            // Write static features for a branch descriptor and statement
-            ParsedBranchDescriptor parsed = parseBranchDescriptor(branchDescriptor);
+        ParsedBranchDescriptor parsed = parseBranchDescriptor(branchDescriptor);
+        String stmtText = sanitize(stmt.toString());
 
-            String stmtText = sanitize(stmt.toString());
+        List<String> apiCalls = extractApiCalls(stmtText);
+        List<String> networkApis = extractNetworkApis(stmtText);
+        List<String> fileApis = extractFileApis(stmtText);
+        List<String> reflectionApis = extractReflectionApis(stmtText, apiCalls);
+        List<String> cryptoApis = extractCryptoApis(stmtText);
 
-            // Extract various features from statement text
-            List<String> apiCalls = extractApiCalls(stmtText);
-            List<String> networkApis = extractNetworkApis(stmtText);
-            List<String> fileApis = extractFileApis(stmtText);
-            List<String> reflectionApis = extractReflectionApis(stmtText);
-            List<String> cryptoApis = extractCryptoApis(stmtText);
+        List<String> strings = extractStrings(stmtText);
+        List<String> urls = extractUrls(stmtText);
+        List<String> commands = extractCommands(stmtText);
 
-            List<String> strings = extractStrings(stmtText);
-            List<String> urls = extractUrls(stmtText);
-            List<String> commands = extractCommands(stmtText);
+        List<String> pathConstraints = buildPathConstraints(parsed);
 
-            boolean loopContext = detectLoopContext(stmtText);
-            boolean threadContext = detectThreadContext(method);
-            boolean asyncContext = detectAsyncContext(method);
+        boolean loopContext = detectLoopContext(stmtText, apiCalls, method);
+        boolean threadContext = detectThreadContext(method);
+        boolean asyncContext = detectAsyncContext(method);
 
-            // Build JSON feature object
-            String json = "{" 
-                + "\"branch_descriptor\":\"" + escapeJson(branchDescriptor) + "\"," 
-                + "\"branch_uid\":\"" + escapeJson(parsed.branchUid) + "\"," 
-                + "\"branch_kind\":\"" + escapeJson(parsed.branchKind) + "\"," 
-                + "\"branch_location\":\"" + escapeJson(parsed.branchLocation) + "\"," 
-                + "\"edge\":\"" + escapeJson(parsed.edge) + "\"," 
-                + "\"case_label\":\"" + escapeJson(parsed.caseLabel) + "\"," 
-                + "\"condition\":\"" + escapeJson(parsed.condition) + "\"," 
+        String json = "{"
+                + "\"branch_descriptor\":\"" + escapeJson(branchDescriptor) + "\","
+                + "\"branch_id\":\"" + escapeJson(parsed.branchId) + "\","
+                + "\"branch_kind\":\"" + escapeJson(parsed.branchKind) + "\","
+                + "\"branch_location\":\"" + escapeJson(parsed.branchLocation) + "\","
+                + "\"edge\":\"" + escapeJson(parsed.edge) + "\","
+                + "\"case_label\":\"" + escapeJson(parsed.caseLabel) + "\","
+                + "\"condition\":\"" + escapeJson(parsed.condition) + "\","
+                + "\"path_constraints\":" + toJsonArray(pathConstraints) + ","
 
-                + "\"stmt_text\":\"" + escapeJson(stmtText) + "\"," 
+                + "\"stmt_text\":\"" + escapeJson(stmtText) + "\","
 
-                + "\"class\":\"" + escapeJson(sootClass.getName()) + "\"," 
-                + "\"method\":\"" + escapeJson(method.getName()) + "\"," 
-                + "\"method_signature\":\"" + escapeJson(method.getSignature()) + "\"," 
-                + "\"package\":\"" + escapeJson(sootClass.getPackageName()) + "\"," 
+                + "\"class\":\"" + escapeJson(sootClass.getName()) + "\","
+                + "\"method\":\"" + escapeJson(method.getName()) + "\","
+                + "\"method_signature\":\"" + escapeJson(method.getSignature()) + "\","
+                + "\"package\":\"" + escapeJson(sootClass.getPackageName()) + "\","
 
-                + "\"component_type\":\"none\"," 
-                + "\"exported\":false," 
-                + "\"entrypoint\":false," 
+                + "\"component_type\":\"none\","
+                + "\"exported\":false,"
+                + "\"entrypoint\":false,"
 
-                + "\"api_calls\":" + toJsonArray(apiCalls) + "," 
-                + "\"network_apis\":" + toJsonArray(networkApis) + "," 
-                + "\"file_apis\":" + toJsonArray(fileApis) + "," 
-                + "\"reflection_apis\":" + toJsonArray(reflectionApis) + "," 
-                + "\"crypto_apis\":" + toJsonArray(cryptoApis) + "," 
+                + "\"api_calls\":" + toJsonArray(apiCalls) + ","
+                + "\"network_apis\":" + toJsonArray(networkApis) + ","
+                + "\"file_apis\":" + toJsonArray(fileApis) + ","
+                + "\"reflection_apis\":" + toJsonArray(reflectionApis) + ","
+                + "\"crypto_apis\":" + toJsonArray(cryptoApis) + ","
 
-                + "\"strings\":" + toJsonArray(strings) + "," 
-                + "\"urls\":" + toJsonArray(urls) + "," 
-                + "\"commands\":" + toJsonArray(commands) + "," 
+                + "\"strings\":" + toJsonArray(strings) + ","
+                + "\"urls\":" + toJsonArray(urls) + ","
+                + "\"commands\":" + toJsonArray(commands) + ","
 
-                + "\"path_constraints\":[]," 
+                + "\"sdk_checks\":[],"
+                + "\"environment_checks\":[],"
 
-                + "\"sdk_checks\":[]," 
-                + "\"environment_checks\":[]," 
-
-                + "\"loop_context\":" + loopContext + "," 
-                + "\"async_context\":" + asyncContext + "," 
-                + "\"thread_context\":" + threadContext 
-
+                + "\"loop_context\":" + loopContext + ","
+                + "\"async_context\":" + asyncContext + ","
+                + "\"thread_context\":" + threadContext
                 + "}";
 
-            featuresWriter.write(json);
-            featuresWriter.newLine();
-        }
+        featuresWriter.write(json);
+        featuresWriter.newLine();
+    }
 
     private ParsedBranchDescriptor parseBranchDescriptor(String descriptor) {
-            // Parse branch descriptor string into structured fields
         ParsedBranchDescriptor parsed = new ParsedBranchDescriptor();
-        parsed.branchUid = descriptor;
+        parsed.branchId = stableBranchId(descriptor);
         parsed.branchKind = "";
         parsed.branchLocation = "";
         parsed.edge = "";
@@ -260,9 +257,36 @@ public class CfgExporter {
         return parsed;
     }
 
+    private List<String> buildPathConstraints(ParsedBranchDescriptor parsed) {
+        List<String> result = new ArrayList<>();
+        if (parsed.condition != null && !parsed.condition.isEmpty()) {
+            if (parsed.edge != null && !parsed.edge.isEmpty()) {
+                result.add("EDGE=" + parsed.edge + ": " + parsed.condition);
+            } else {
+                result.add(parsed.condition);
+            }
+        } else if (parsed.caseLabel != null && !parsed.caseLabel.isEmpty()) {
+            result.add("CASE=" + parsed.caseLabel);
+        }
+        return result;
+    }
+
+    private String stableBranchId(String descriptor) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            byte[] digest = md.digest(descriptor.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder("B");
+            for (int i = 0; i < 4; i++) {
+                sb.append(String.format("%02x", digest[i]));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            return "B" + Integer.toHexString(descriptor.hashCode());
+        }
+    }
+
     private String sanitize(String value) {
-            // Remove whitespace and control characters from string
-        return value
+        return value == null ? "" : value
                 .replace('\n', ' ')
                 .replace('\r', ' ')
                 .replace('\t', ' ')
@@ -270,7 +294,6 @@ public class CfgExporter {
     }
 
     private String escapeJson(String value) {
-            // Escape JSON special characters
         if (value == null) {
             return "";
         }
@@ -280,8 +303,7 @@ public class CfgExporter {
     }
 
     private static class ParsedBranchDescriptor {
-            // Structure for parsed branch descriptor fields
-        String branchUid;
+        String branchId;
         String branchKind;
         String branchLocation;
         String edge;
@@ -290,14 +312,15 @@ public class CfgExporter {
     }
 
     private String toJsonArray(List<String> values) {
-            // Convert list of strings to JSON array
-        if (values.isEmpty()) {
+        if (values == null || values.isEmpty()) {
             return "[]";
         }
 
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < values.size(); i++) {
-            if (i > 0) sb.append(",");
+            if (i > 0) {
+                sb.append(",");
+            }
             sb.append("\"").append(escapeJson(values.get(i))).append("\"");
         }
         sb.append("]");
@@ -305,111 +328,158 @@ public class CfgExporter {
     }
 
     private List<String> extractApiCalls(String stmt) {
-            // Extract API call signatures from statement
-        List<String> result = new ArrayList<>();
-
-        if (stmt.contains("<") && stmt.contains(">")) {
-            int start = stmt.indexOf("<");
-            int end = stmt.indexOf(">");
-            if (start >= 0 && end > start) {
-                result.add(stmt.substring(start + 1, end));
+        Set<String> result = new LinkedHashSet<>();
+        Matcher matcher = ANGLE_API_PATTERN.matcher(stmt);
+        while (matcher.find()) {
+            String sig = matcher.group(1).trim();
+            if (!sig.isEmpty()) {
+                result.add(sig);
             }
         }
-
-        return result;
+        return new ArrayList<>(result);
     }
 
     private List<String> extractNetworkApis(String stmt) {
-            // Extract network API usages from statement
-        List<String> result = new ArrayList<>();
+        Set<String> result = new LinkedHashSet<>();
 
         if (stmt.contains("HttpURLConnection")) result.add("HttpURLConnection");
         if (stmt.contains("Socket")) result.add("Socket");
         if (stmt.contains("OkHttp")) result.add("OkHttp");
         if (stmt.contains("URLConnection")) result.add("URLConnection");
+        if (stmt.contains("java.net.URL")) result.add("java.net.URL");
 
-        return result;
+        return new ArrayList<>(result);
     }
 
     private List<String> extractFileApis(String stmt) {
-            // Extract file API usages from statement
-        List<String> result = new ArrayList<>();
+        Set<String> result = new LinkedHashSet<>();
 
         if (stmt.contains("FileInputStream")) result.add("FileInputStream");
         if (stmt.contains("FileOutputStream")) result.add("FileOutputStream");
         if (stmt.contains("RandomAccessFile")) result.add("RandomAccessFile");
+        if (stmt.contains("java.io.File")) result.add("java.io.File");
 
-        return result;
+        return new ArrayList<>(result);
     }
 
-    private List<String> extractReflectionApis(String stmt) {
-            // Extract reflection API usages from statement
-        List<String> result = new ArrayList<>();
+    private List<String> extractReflectionApis(String stmt, List<String> apiCalls) {
+        Set<String> result = new LinkedHashSet<>();
 
         if (stmt.contains("Class.forName")) result.add("Class.forName");
-        if (stmt.contains("getMethod")) result.add("getMethod");
-        if (stmt.contains("invoke")) result.add("invoke");
+        if (stmt.contains("java.lang.reflect.Method")) result.add("java.lang.reflect.Method");
+        if (stmt.contains("java.lang.reflect.Field")) result.add("java.lang.reflect.Field");
+        if (stmt.contains("java.lang.reflect.Constructor")) result.add("java.lang.reflect.Constructor");
+        if (stmt.contains("getDeclaredMethod")) result.add("getDeclaredMethod");
+        if (stmt.contains("getDeclaredField")) result.add("getDeclaredField");
+        if (stmt.contains("getMethod(") || stmt.contains(" getMethod")) result.add("getMethod");
+        if (stmt.contains("getField(") || stmt.contains(" getField")) result.add("getField");
 
-        return result;
+        for (String api : apiCalls) {
+            if (api.contains("java.lang.reflect.Method:") && api.contains(" invoke(")) {
+                result.add("Method.invoke");
+            }
+            if (api.contains("java.lang.reflect.Field:") && api.contains(" get(")) {
+                result.add("Field.get");
+            }
+            if (api.contains("java.lang.reflect.Field:") && api.contains(" set(")) {
+                result.add("Field.set");
+            }
+            if (api.contains("java.lang.Class:") && api.contains(" forName(")) {
+                result.add("Class.forName");
+            }
+        }
+
+        return new ArrayList<>(result);
     }
 
     private List<String> extractCryptoApis(String stmt) {
-            // Extract crypto API usages from statement
-        List<String> result = new ArrayList<>();
+        Set<String> result = new LinkedHashSet<>();
 
         if (stmt.contains("Cipher")) result.add("Cipher");
         if (stmt.contains("SecretKey")) result.add("SecretKey");
         if (stmt.contains("MessageDigest")) result.add("MessageDigest");
+        if (stmt.contains("Mac")) result.add("Mac");
 
-        return result;
+        return new ArrayList<>(result);
     }
 
     private List<String> extractStrings(String stmt) {
-            // Extract string literals from statement
-        List<String> result = new ArrayList<>();
-
-        if (stmt.contains("\"")) {
-            result.add(stmt);
+        Set<String> result = new LinkedHashSet<>();
+        Matcher matcher = STRING_LITERAL_PATTERN.matcher(stmt);
+        while (matcher.find()) {
+            result.add(matcher.group(1));
         }
-
-        return result;
+        return new ArrayList<>(result);
     }
 
     private List<String> extractUrls(String stmt) {
-            // Extract URLs from statement
-        List<String> result = new ArrayList<>();
-
-        if (stmt.contains("http://") || stmt.contains("https://")) {
-            result.add("url");
+        Set<String> result = new LinkedHashSet<>();
+        Matcher matcher = URL_PATTERN.matcher(stmt);
+        while (matcher.find()) {
+            result.add(matcher.group(1));
         }
-
-        return result;
+        return new ArrayList<>(result);
     }
 
     private List<String> extractCommands(String stmt) {
-            // Extract command execution patterns from statement
-        List<String> result = new ArrayList<>();
+        Set<String> result = new LinkedHashSet<>();
 
-        if (stmt.contains("Runtime.getRuntime")) result.add("runtime_exec");
-        if (stmt.contains("exec(")) result.add("exec");
+        if (stmt.contains("Runtime.getRuntime")) result.add("Runtime.getRuntime");
+        if (stmt.contains(".exec(") || stmt.contains(" exec(")) result.add("exec");
+        if (stmt.contains("ProcessBuilder")) result.add("ProcessBuilder");
 
-        return result;
+        return new ArrayList<>(result);
     }
 
     private boolean detectThreadContext(SootMethod method) {
-            // Detect if method is a thread context (e.g., run())
-        return method.getName().equals("run");
+        return "run".equals(method.getName());
     }
 
     private boolean detectAsyncContext(SootMethod method) {
-            // Detect if method is asynchronous context
-        return method.getName().contains("async")
-                || method.getName().contains("background");
+        String name = method.getName().toLowerCase();
+        return name.contains("async")
+                || name.contains("background")
+                || name.contains("worker")
+                || name.contains("doinbackground");
     }
 
-    private boolean detectLoopContext(String stmt) {
-            // Detect if statement is in a loop context
-        return stmt.contains("goto")
-                || stmt.contains("hasNext");
+    private boolean detectLoopContext(String stmtText, List<String> apiCalls, SootMethod method) {
+        String lowerStmt = stmtText.toLowerCase();
+
+        if (lowerStmt.contains("hasnext")) {
+            return true;
+        }
+
+        for (String api : apiCalls) {
+            String lowerApi = api.toLowerCase();
+            if (lowerApi.contains("java.util.iterator")
+                    || lowerApi.contains(" iterator(")
+                    || lowerApi.contains(" hasnext(")
+                    || lowerApi.contains(" next(")) {
+                return true;
+            }
+        }
+
+        try {
+            Body body = method.retrieveActiveBody();
+            boolean seenIterator = false;
+            boolean seenHasNextOrNext = false;
+
+            for (Unit unit : body.getUnits()) {
+                String u = sanitize(unit.toString()).toLowerCase();
+                if (u.contains("iterator()") || u.contains("java.util.iterator")) {
+                    seenIterator = true;
+                }
+                if (u.contains("hasnext()") || u.contains("next()")) {
+                    seenHasNextOrNext = true;
+                }
+                if (seenIterator && seenHasNextOrNext) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        return false;
     }
 }
