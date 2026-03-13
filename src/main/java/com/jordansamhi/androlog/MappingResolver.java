@@ -66,6 +66,7 @@ public class MappingResolver {
                 }
 
                 String originalMethod = left.substring(nameStart + 1, methodStart).trim();
+
                 obfuscatedMethodToOriginalByClass
                         .computeIfAbsent(currentObfuscatedClass, k -> new HashMap<>())
                         .put(obfuscatedMethod, originalMethod);

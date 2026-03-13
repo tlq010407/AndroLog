@@ -23,6 +23,174 @@ public class LogParser {
     private final Set<String> visitedContentProviders = new HashSet<>();
     private final Set<String> visitedBranches = new HashSet<>();
 
+    public LogParser(String logIdentifier, SummaryBuilder summaryBuilder) {
+        this(logIdentifier, summaryBuilder, null);
+    }
+
+    public LogParser(String logIdentifier, SummaryBuilder summaryBuilder, String mappingFilePath) {
+        this.logIdentifier = logIdentifier;
+        this.summaryBuilder = summaryBuilder;
+        this.mappingResolver = MappingResolver.fromFile(mappingFilePath);
+
+        for (String component : this.summaryBuilder.getVisitedComponents()) {
+            String logType = getType(component);
+            if (logType != null) {
+                switch (logType) {
+                    case "statements":
+                        int firstPipe = component.indexOf('|');
+                        if (firstPipe > 0) {
+                            visitedStatements.add(component.substring(logType.length(), firstPipe));
+                        }
+                        break;
+                    case "methods":
+                        visitedMethods.add(component.substring(logType.length()));
+                        break;
+                    case "classes":
+                        visitedClasses.add(component.substring(logType.length()));
+                        break;
+                    case "activities":
+                        visitedActivities.add(component.substring(logType.length()));
+                        break;
+                    case "services":
+                        visitedServices.add(component.substring(logType.length()));
+                        break;
+                    case "broadcast-receivers":
+                        visitedBroadcastReceivers.add(component.substring(logType.length()));
+                        break;
+                    case "content-providers":
+                        visitedContentProviders.add(component.substring(logType.length()));
+                        break;
+                    case "branches":
+                        visitedBranches.add(component.substring(logType.length()));
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+
+    private static String getType(String component) {
+        String[] logTypes = {
+                "statements",
+                "methods",
+                "classes",
+                "activities",
+                "services",
+                "broadcast-receivers",
+                "content-providers",
+                "branches"
+        };
+
+        for (String lt : logTypes) {
+            if (component.startsWith(lt)) {
+                return lt;
+            }
+        }
+        return null;
+    }
+
+    public void parseLogs(String filePath) {
+        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.contains(logIdentifier)) {
+                    parseLine(line);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void parseLine(String line) {
+        String logType = getLogType(line);
+        if (logType == null) {
+            return;
+        }
+
+        switch (logType) {
+            case "STATEMENT":
+                int logIndex = line.indexOf(logType + "=");
+                int firstPipe = line.indexOf('|');
+                if (logIndex >= 0 && firstPipe > logIndex) {
+                    if (visitedStatements.contains(line.substring(logIndex, firstPipe))) {
+                        summaryLogBuilder.incrementStatement(line);
+                    }
+                }
+                break;
+
+            case "BRANCH":
+                logIndex = line.indexOf(logType + "=");
+                if (logIndex < 0) {
+                    break;
+                }
+                String branchPayload = line.substring(logIndex).trim();
+                if (visitedBranches.contains(branchPayload) || branchBelongsToKnownMethod(branchPayload)) {
+                    summaryLogBuilder.incrementBranch(line);
+                }
+                break;
+
+            case "METHOD":
+                String methodFromLog = line.split(logType + "=")[1];
+                matchAndIncrementMethod(methodFromLog, line);
+                break;
+
+            case "CLASS":
+                String classFromLog = line.split(logType + "=")[1];
+                String mappedClassFromLog = mappingResolver != null
+                        ? mappingResolver.mapClass(classFromLog)
+                        : classFromLog;
+                if (visitedClasses.contains(classFromLog) || visitedClasses.contains(mappedClassFromLog)) {
+                    summaryLogBuilder.incrementClass(line);
+                }
+                break;
+
+            case "NATIVE_METHOD":
+                String nativeMethodFromLog = line.split(logType + "=")[1];
+                summaryLogBuilder.incrementNativeSignalSeen();
+                if (matchAndIncrementMethod(nativeMethodFromLog, line)) {
+                    summaryLogBuilder.incrementNativeSignalMatched();
+                }
+                break;
+
+            case "NATIVE_INVOKE":
+                String nativeInvokeFromLog = line.split(logType + "=")[1];
+                summaryLogBuilder.incrementNativeSignalSeen();
+                if (matchAndIncrementMethod(nativeInvokeFromLog, line)) {
+                    summaryLogBuilder.incrementNativeSignalMatched();
+                }
+                break;
+
+            case "ACTIVITY":
+                if (visitedActivities.contains(line.split(logType + "=")[1])) {
+                    summaryLogBuilder.incrementActivity(line);
+                }
+                break;
+
+            case "SERVICE":
+                if (visitedServices.contains(line.split(logType + "=")[1])) {
+                    summaryLogBuilder.incrementService(line);
+                }
+                break;
+
+            case "BROADCASTRECEIVER":
+                if (visitedBroadcastReceivers.contains(line.split(logType + "=")[1])) {
+                    summaryLogBuilder.incrementBroadcastReceiver(line);
+                }
+                break;
+
+            case "CONTENTPROVIDER":
+                if (visitedContentProviders.contains(line.split(logType + "=")[1])) {
+                    summaryLogBuilder.incrementContentProvider(line);
+                }
+                break;
+
+            default:
+                break;
+        }
+    }
+
     private boolean matchAndIncrementMethod(String runtimeMethodLike, String originalLineForCounting) {
         if (runtimeMethodLike == null || runtimeMethodLike.isEmpty()) {
             return false;
@@ -67,147 +235,6 @@ public class LogParser {
         }
 
         return false;
-    }
-
-    public LogParser(String logIdentifier, SummaryBuilder summaryBuilder) {
-        this(logIdentifier, summaryBuilder, null);
-    }
-
-    public LogParser(String logIdentifier, SummaryBuilder summaryBuilder, String mappingFilePath) {
-        this.logIdentifier = logIdentifier;
-        this.summaryBuilder = summaryBuilder;
-        this.mappingResolver = MappingResolver.fromFile(mappingFilePath);
-
-        for (String component : this.summaryBuilder.getVisitedComponents()) {
-            String logType = getType(component);
-            if (logType != null){
-                switch (logType) {
-                    case "statements":
-                        int firstPipe = component.indexOf('|');
-                        visitedStatements.add(component.substring(logType.length(),firstPipe));
-                        break;
-                    case "methods":
-                        visitedMethods.add(component.substring(logType.length()));
-                        break;
-                    case "classes":
-                        visitedClasses.add(component.substring(logType.length()));
-                        break;
-                    case "activities":
-                        visitedActivities.add(component.substring(logType.length()));
-                        break;
-                    case "services":
-                        visitedServices.add(component.substring(logType.length()));
-                        break;
-                    case "broadcast-receivers":
-                        visitedBroadcastReceivers.add(component.substring(logType.length()));
-                        break;
-                    case "content-providers":
-                        visitedContentProviders.add(component.substring(logType.length()));
-                        break;
-                    case "branches":
-                        visitedBranches.add(component.substring(logType.length()));
-                        break;
-                }
-            }
-        }
-    }
-
-    private static String getType(String component) {
-        String logType = null;
-        String[] logTypes = {"statements", "methods", "classes", "activities", "services", "broadcast-receivers", "branches"};
-        for (String lt : logTypes) {
-            if (component.startsWith(lt)) {
-                logType = lt;
-            }
-        }
-        return logType;
-    }
-
-    public void parseLogs(String filePath) {
-        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.contains(logIdentifier)) {
-                    parseLine(line);
-                }
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void parseLine(String line) {
-        String logType = getLogType(line);
-
-        if (logType != null) {
-            switch (logType) {
-                case "STATEMENT":
-                    int logIndex = line.indexOf(logType + "=");
-                    int firstPipe = line.indexOf('|');
-                    if (visitedStatements.contains(line.substring(logIndex, firstPipe))) {
-                        summaryLogBuilder.incrementStatement(line);
-                    }
-                    break;
-                case "BRANCH":
-                    logIndex = line.indexOf(logType + "=");
-                    if (logIndex < 0) {
-                        break;
-                    }
-                    String branchPayload = line.substring(logIndex).trim();
-                    if (visitedBranches.contains(branchPayload) || branchBelongsToKnownMethod(branchPayload)) {
-                        summaryLogBuilder.incrementBranch(line);
-                    }
-                    break;
-                case "METHOD":
-                    // Extract method from log: METHOD=class.method()
-                    String methodFromLog = line.split(logType + "=")[1];
-                    matchAndIncrementMethod(methodFromLog, line);
-                    break;
-                case "CLASS":
-                    String classFromLog = line.split(logType + "=")[1];
-                    String mappedClassFromLog = mappingResolver != null
-                            ? mappingResolver.mapClass(classFromLog)
-                            : classFromLog;
-                    if (visitedClasses.contains(classFromLog) || visitedClasses.contains(mappedClassFromLog)) {
-                        summaryLogBuilder.incrementClass(line);
-                    }
-                    break;
-                case "NATIVE_METHOD":
-                    String nativeMethodFromLog = line.split(logType + "=")[1];
-                    summaryLogBuilder.incrementNativeSignalSeen();
-                    if (matchAndIncrementMethod(nativeMethodFromLog, line)) {
-                        summaryLogBuilder.incrementNativeSignalMatched();
-                    }
-                    break;
-                case "NATIVE_INVOKE":
-                    String nativeInvokeFromLog = line.split(logType + "=")[1];
-                    summaryLogBuilder.incrementNativeSignalSeen();
-                    if (matchAndIncrementMethod(nativeInvokeFromLog, line)) {
-                        summaryLogBuilder.incrementNativeSignalMatched();
-                    }
-                    break;
-                case "ACTIVITY":
-                    if (visitedActivities.contains(line.split(logType + "=")[1])) {
-                        summaryLogBuilder.incrementActivity(line);
-                    }
-                    break;
-                case "SERVICE":
-                    if (visitedServices.contains(line.split(logType + "=")[1])) {
-                        summaryLogBuilder.incrementService(line);
-                    }
-                    break;
-                case "BROADCASTRECEIVER":
-                    if (visitedBroadcastReceivers.contains(line.split(logType + "=")[1])) {
-                        summaryLogBuilder.incrementBroadcastReceiver(line);
-                    }
-                    break;
-                case "CONTENTPROVIDER":
-                    if (visitedContentProviders.contains(line.split(logType + "=")[1])) {
-                        summaryLogBuilder.incrementContentProvider(line);
-                    }
-                    break;
-            }
-        }
     }
 
     private String getLogType(String line) {

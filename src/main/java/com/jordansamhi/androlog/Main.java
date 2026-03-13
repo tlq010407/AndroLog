@@ -12,18 +12,18 @@ import com.jordansamhi.androspecter.instrumentation.Logger;
 import com.jordansamhi.androspecter.printers.Writer;
 import soot.options.Options;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.util.Date;
 import java.util.Optional;
 
 public class Main {
     public static void main(String[] args) {
-        System.out.printf("%s v%s started on %s\n%n", Constants.TOOL_NAME, Constants.VERSION, new Date());
+        System.out.printf("%s v%s started on %s%n%n", Constants.TOOL_NAME, Constants.VERSION, new Date());
 
         CommandLineOptions options = CommandLineOptions.v();
         options.setAppName("AndroLog");
@@ -52,27 +52,24 @@ public class Main {
         options.addOption(new CommandLineOption("mapping-file", "mf", "R8/ProGuard mapping.txt path for name resolution", true, false));
         options.parseArgs(args);
 
-        boolean includeLibraries = !CommandLineOptions.v().hasOption("n");
+        boolean includeLibraries = !options.hasOption("non-libraries");
 
         String logIdentifier = Optional.ofNullable(options.getOptionValue("log-identifier")).orElse("ANDROLOG");
         String outputApk = Optional.ofNullable(options.getOptionValue("output")).orElse(TmpFolder.v().get());
         String outputJson = Optional.ofNullable(options.getOptionValue("json")).orElse(TmpFolder.v().get());
 
-        // Explicit Frida mode
-        if (CommandLineOptions.v().hasOption("frida")) {
+        if (options.hasOption("frida")) {
             Writer.v().pinfo("Frida mode enabled via --frida flag");
             handleFridaInstrumentation();
             return;
         }
 
-        // Auto-detect instrumentation mode
         InstrumentationMode mode = InstrumentationMode.SOOT;
-        if (CommandLineOptions.v().hasOption("ad")) {
-            String apkPath = CommandLineOptions.v().getOptionValue("apk");
+        if (options.hasOption("auto-detect")) {
+            String apkPath = options.getOptionValue("apk");
             mode = CompatibilityDetector.detectMode(apkPath);
             Writer.v().pinfo("Auto-detected mode: " + CompatibilityDetector.getDescription(mode));
-            
-            // Force Frida mode if detected
+
             if (mode == InstrumentationMode.FRIDA) {
                 Writer.v().pinfo("This app requires Frida instrumentation (Kotlin+R8 detected)");
                 handleFridaInstrumentation();
@@ -82,72 +79,82 @@ public class Main {
 
         Writer.v().pinfo("Setting up environment...");
         SootUtils su = new SootUtils();
-        su.setupSootWithOutput(CommandLineOptions.v().getOptionValue("platforms"), CommandLineOptions.v().getOptionValue("apk"), outputApk, true);
+        su.setupSootWithOutput(options.getOptionValue("platforms"), options.getOptionValue("apk"), outputApk, true);
         Options.v().set_wrong_staticness(Options.wrong_staticness_ignore);
         applyThreadOption();
         Writer.v().psuccess("Done.");
 
-        Path path = Paths.get(CommandLineOptions.v().getOptionValue("apk"));
+        Path path = Paths.get(options.getOptionValue("apk"));
         String fileName = path.getFileName().toString();
 
         String packageName = null;
-        if (CommandLineOptions.v().hasOption("pkg")) {
-            packageName = CommandLineOptions.v().getOptionValue("package");
+        if (options.hasOption("package")) {
+            packageName = options.getOptionValue("package");
         }
 
-        if (CommandLineOptions.v().hasOption("pa") || CommandLineOptions.v().hasOption("pam")) {
+        if (options.hasOption("parse") || options.hasOption("parse-per-minute")) {
             Writer.v().pinfo("Generating Code Coverage Report...");
-            String logFilePath = "";
-            if (CommandLineOptions.v().hasOption("pa")) {
-                logFilePath = CommandLineOptions.v().getOptionValue("parse");
-            } else if (CommandLineOptions.v().hasOption("pam")) {
-                logFilePath = CommandLineOptions.v().getOptionValue("parse-per-minute");
+
+            String logFilePath;
+            if (options.hasOption("parse")) {
+                logFilePath = options.getOptionValue("parse");
+            } else {
+                logFilePath = options.getOptionValue("parse-per-minute");
             }
+
             SummaryBuilder summaryBuilder = SummaryBuilder.v();
             summaryBuilder.setSootUtils(su);
-            boolean noBodiesMode = CommandLineOptions.v().hasOption("nb") || CommandLineOptions.v().hasOption("hy");
+            boolean noBodiesMode = options.hasOption("no-bodies") || options.hasOption("hybrid");
             summaryBuilder.build(includeLibraries, noBodiesMode);
 
-            if (CommandLineOptions.v().hasOption("b")) {
-                String explicitCfgPath = CommandLineOptions.v().getOptionValue("cfg-output");
+            if (options.hasOption("branches")) {
+                String explicitCfgPath = options.getOptionValue("cfg-output");
                 String cfgOutputPath = resolveCfgOutputPath(explicitCfgPath, outputJson, logFilePath);
+                String featuresOutputPath = resolveFeaturesOutputPath(cfgOutputPath);
                 try {
+                    Writer.v().pinfo("Exporting CFG and static features...");
                     CfgExporter cfgExporter = new CfgExporter(includeLibraries, packageName);
                     cfgExporter.export(cfgOutputPath);
                     Writer.v().pinfo("Processing CFG written to " + cfgOutputPath);
+                    Writer.v().pinfo("Static features written to " + featuresOutputPath);
                 } catch (Exception cfgError) {
-                    Writer.v().perror("Failed to export processing CFG: " + cfgError.getMessage());
+                    Writer.v().perror("Failed to export processing CFG/static features: " + cfgError.getMessage());
+                    cfgError.printStackTrace();
                 }
             }
 
-            String mappingPath = CommandLineOptions.v().hasOption("mf")
-                    ? CommandLineOptions.v().getOptionValue("mapping-file")
+            String mappingPath = options.hasOption("mapping-file")
+                    ? options.getOptionValue("mapping-file")
                     : null;
+
+            if (mappingPath != null && !mappingPath.trim().isEmpty()) {
+                Writer.v().pinfo("Using mapping file: " + mappingPath);
+            }
+
             LogParser lp = new LogParser(logIdentifier, summaryBuilder, mappingPath);
             lp.parseLogs(logFilePath);
 
             SummaryLogBuilder summaryLogBuilder = SummaryLogBuilder.v();
-
             SummaryStatistics stats = new SummaryStatistics();
-            if (CommandLineOptions.v().hasOption("j")) {
-                if (CommandLineOptions.v().hasOption("pa")) {
+
+            if (options.hasOption("json")) {
+                if (options.hasOption("parse")) {
                     stats.compareSummariesToJson(summaryBuilder, summaryLogBuilder, outputJson);
-                } else if (CommandLineOptions.v().hasOption("pam")) {
+                } else {
                     stats.compareSummariesPerMinuteToJson(summaryBuilder, summaryLogBuilder, outputJson);
                 }
                 Writer.v().psuccess("Done.");
-
                 Writer.v().pinfo("The parsed logs are now available in " + outputJson);
             } else {
-                if (CommandLineOptions.v().hasOption("pa")) {
+                if (options.hasOption("parse")) {
                     stats.compareSummaries(summaryBuilder, summaryLogBuilder);
-                } else if (CommandLineOptions.v().hasOption("pam")) {
+                } else {
                     stats.compareSummariesPerMinute(summaryBuilder, summaryLogBuilder);
                 }
                 Writer.v().psuccess("Done.");
             }
         } else {
-            boolean noRewrite = CommandLineOptions.v().hasOption("nr");
+            boolean noRewrite = options.hasOption("no-rewrite");
             boolean hasInstrumentation = isInstrumentationRequested();
 
             if (noRewrite || !hasInstrumentation) {
@@ -156,7 +163,7 @@ public class Main {
                 } else {
                     Writer.v().pinfo("No instrumentation flags selected. Skipping rewrite and copying original APK to output.");
                 }
-                copyOriginalApkToOutput(CommandLineOptions.v().getOptionValue("apk"), outputApk);
+                copyOriginalApkToOutput(options.getOptionValue("apk"), outputApk);
                 Writer.v().psuccess(String.format("APK copied to: %s", outputApk));
                 return;
             }
@@ -164,29 +171,31 @@ public class Main {
             Writer.v().pinfo("Instrumentation in progress...");
             Logger.v().setTargetPackage(packageName);
             BranchLogger.v().setTargetPackage(packageName);
-            if (CommandLineOptions.v().hasOption("mc")) {
+
+            if (options.hasOption("method-calls")) {
                 Logger.v().logAllMethodCalls(logIdentifier, includeLibraries);
             }
-            if (CommandLineOptions.v().hasOption("s")) {
+            if (options.hasOption("statements")) {
                 Logger.v().logAllStatements(logIdentifier, includeLibraries);
             }
-            if (CommandLineOptions.v().hasOption("b")) {
+            if (options.hasOption("branches")) {
                 BranchLogger.v().logAllBranches(logIdentifier, includeLibraries);
             }
-            if (CommandLineOptions.v().hasOption("m")) {
+            if (options.hasOption("methods")) {
                 Logger.v().logAllMethods(logIdentifier, includeLibraries);
             }
-            if (CommandLineOptions.v().hasOption("c")) {
+            if (options.hasOption("classes")) {
                 Logger.v().logAllClasses(logIdentifier, includeLibraries);
             }
-            if (CommandLineOptions.v().hasOption("cp")) {
+            if (options.hasOption("components")) {
                 Logger.v().logActivities(logIdentifier, includeLibraries);
                 Logger.v().logContentProviders(logIdentifier, includeLibraries);
                 Logger.v().logServices(logIdentifier, includeLibraries);
                 Logger.v().logBroadcastReceivers(logIdentifier, includeLibraries);
             }
+
             Logger.v().instrument();
-            System.out.printf("%s v%s finished Instrumentation at %s\n%n", Constants.TOOL_NAME, Constants.VERSION, new Date());
+            System.out.printf("%s v%s finished Instrumentation at %s%n%n", Constants.TOOL_NAME, Constants.VERSION, new Date());
             Writer.v().psuccess("Done.");
             Writer.v().pinfo("Exporting new apk...");
             Logger.v().exportNewApk(outputApk);
@@ -202,12 +211,13 @@ public class Main {
     }
 
     private static boolean isInstrumentationRequested() {
-        return CommandLineOptions.v().hasOption("mc")
-                || CommandLineOptions.v().hasOption("s")
-                || CommandLineOptions.v().hasOption("b")
-                || CommandLineOptions.v().hasOption("m")
-                || CommandLineOptions.v().hasOption("c")
-                || CommandLineOptions.v().hasOption("cp");
+        CommandLineOptions options = CommandLineOptions.v();
+        return options.hasOption("method-calls")
+                || options.hasOption("statements")
+                || options.hasOption("branches")
+                || options.hasOption("methods")
+                || options.hasOption("classes")
+                || options.hasOption("components");
     }
 
     private static void copyOriginalApkToOutput(String sourceApkPath, String outputDir) {
@@ -223,21 +233,11 @@ public class Main {
         }
     }
 
-    /**
-     * Configures the number of threads used by the Soot framework based on the
-     * command-line option provided by the user.
-     * <p>
-     * If the "--threads" (or "-t") option is specified and contains a valid positive
-     * integer, this value is passed to {@code Options.v().set_num_threads()}.
-     * Otherwise, Soot's default thread configuration is used.
-     * <p>
-     * Logs appropriate messages for valid, missing, or invalid input.
-     * Exits the program if the input value is non-numeric or non-positive.
-     */
     private static void applyThreadOption() {
-        if (CommandLineOptions.v().hasOption("threads")) {
+        CommandLineOptions options = CommandLineOptions.v();
+        if (options.hasOption("threads")) {
             try {
-                int numThreads = Integer.parseInt(CommandLineOptions.v().getOptionValue("threads"));
+                int numThreads = Integer.parseInt(options.getOptionValue("threads"));
                 if (numThreads > 0) {
                     Options.v().set_num_threads(numThreads);
                     Writer.v().pinfo(String.format("Using %d threads for Soot processing", numThreads));
@@ -254,15 +254,14 @@ public class Main {
         }
     }
 
-    /**
-     * Handle Frida-based instrumentation for Kotlin+R8 apps
-     */
     private static void handleFridaInstrumentation() {
         try {
-            String apkPath = CommandLineOptions.v().getOptionValue("apk");
-            String packageName = Optional.ofNullable(CommandLineOptions.v().getOptionValue("package")).orElse(null);
-            String logTag = Optional.ofNullable(CommandLineOptions.v().getOptionValue("log-identifier")).orElse("ANDROLOG");
-            String outputDir = Optional.ofNullable(CommandLineOptions.v().getOptionValue("output")).orElse("/tmp/androlog_frida");
+            CommandLineOptions options = CommandLineOptions.v();
+
+            String apkPath = options.getOptionValue("apk");
+            String packageName = Optional.ofNullable(options.getOptionValue("package")).orElse(null);
+            String logTag = Optional.ofNullable(options.getOptionValue("log-identifier")).orElse("ANDROLOG");
+            String outputDir = Optional.ofNullable(options.getOptionValue("output")).orElse("/tmp/androlog_frida");
             Files.createDirectories(Paths.get(outputDir));
 
             String deviceId = detectDeviceId();
@@ -320,7 +319,7 @@ public class Main {
             Path outputJson = Paths.get(outputJsonPath);
             Path parent = outputJson.getParent();
             if (parent != null) {
-                return parent.resolve("processing.cfg").toString();
+                return parent.resolve("static_apk.cfg").toString();
             }
         }
 
@@ -328,10 +327,21 @@ public class Main {
             Path logPath = Paths.get(logFilePath);
             Path parent = logPath.getParent();
             if (parent != null) {
-                return parent.resolve("processing.cfg").toString();
+                return parent.resolve("static_apk.cfg").toString();
             }
         }
 
-        return "processing.cfg";
+        return "static_apk.cfg";
+    }
+
+    private static String resolveFeaturesOutputPath(String cfgOutputPath) {
+        Path cfgPath = Paths.get(cfgOutputPath);
+        Path parent = cfgPath.getParent();
+
+        if (parent != null) {
+            return parent.resolve("static_features.jsonl").toString();
+        }
+
+        return "static_features.jsonl";
     }
 }
