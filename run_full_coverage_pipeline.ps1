@@ -12,7 +12,10 @@ param(
     [string]$LogTag = "ANDROLOG",
 
     [Parameter(Mandatory = $false)]
-    [string]$DeviceId = ""
+    [string]$DeviceId = "",
+
+    [Parameter(Mandatory = $false)]
+    [string]$SplitApkDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -147,6 +150,33 @@ function Resolve-DeviceId {
     return $devices[$index]
 }
 
+function Get-SplitApkPaths {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BaseApkPath,
+
+        [string]$SplitDirectory
+    )
+
+    if (-not $SplitDirectory) {
+        return @()
+    }
+
+    if (-not (Test-Path $SplitDirectory)) {
+        Write-Error-Custom "Split APK directory not found: $SplitDirectory"
+        exit 1
+    }
+
+    $resolvedBaseApk = (Resolve-Path $BaseApkPath).Path
+
+    $splitApks = Get-ChildItem -Path $SplitDirectory -Filter *.apk -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -ne $resolvedBaseApk } |
+        Sort-Object Name |
+        Select-Object -ExpandProperty FullName
+
+    return @($splitApks)
+}
+
 try {
     # -------- Configuration --------
     $ScriptDir = $PSScriptRoot
@@ -166,6 +196,11 @@ try {
     # -------- Pre-checks --------
     if (-not (Test-Path $ApkPath)) {
         Write-Error-Custom "APK file not found: $ApkPath"
+        exit 1
+    }
+
+    if ($SplitApkDir -and -not (Test-Path $SplitApkDir)) {
+        Write-Error-Custom "Split APK directory not found: $SplitApkDir"
         exit 1
     }
 
@@ -208,6 +243,7 @@ try {
 
     $ApkFilename = Split-Path $ApkPath -Leaf
     $ApkName = [System.IO.Path]::GetFileNameWithoutExtension($ApkFilename)
+    $SplitApkPaths = Get-SplitApkPaths -BaseApkPath $ApkPath -SplitDirectory $SplitApkDir
 
     Write-Info "=========================================="
     Write-Info "AndroLog Coverage Pipeline"
@@ -217,6 +253,9 @@ try {
     Write-Info "Output: $OutputDir"
     Write-Info "Log Tag: $LogTag"
     Write-Info "Platforms: $PlatformsPath"
+    if ($SplitApkPaths.Count -gt 0) {
+        Write-Info "Split APKs: $($SplitApkPaths.Count) from $SplitApkDir"
+    }
     Write-Info "=========================================="
 
     $platformDirs = Get-ChildItem -Path $PlatformsPath -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
@@ -313,10 +352,23 @@ try {
     Write-Info "Uninstalling existing app..."
     adb -s "$AdbDevice" uninstall "$PackageName" 2>$null | Out-Null
 
-    Write-Info "Installing new APK..."
-    adb -s "$AdbDevice" install --no-incremental -r "$InstrumentedApk"
+    if ($SplitApkPaths.Count -gt 0) {
+        Write-Info "Installing instrumented base APK with $($SplitApkPaths.Count) split APK(s)..."
+        $installArgs = @('-s', "$AdbDevice", 'install-multiple', '--no-incremental', '-r', "$InstrumentedApk") + $SplitApkPaths
+        & adb @installArgs
+    }
+    else {
+        Write-Info "Installing new APK..."
+        adb -s "$AdbDevice" install --no-incremental -r "$InstrumentedApk"
+    }
+
     if ($LASTEXITCODE -ne 0) {
-        Write-Error-Custom "Installation failed"
+        if ($SplitApkPaths.Count -gt 0) {
+            Write-Error-Custom "Split APK installation failed"
+        }
+        else {
+            Write-Error-Custom "Installation failed"
+        }
         exit 1
     }
     Write-Success "APK installed successfully"

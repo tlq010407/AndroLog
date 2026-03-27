@@ -158,3 +158,11 @@ os.system('adb -P 5037 -s emulator-5554 pull <PATH_TO_FILE>/coverage.ec <DESTINA
 # you can can also quit the driver
 self.driver.reset()
 ```
+
+## Documentation Update (2026-03-27)
+
+- AndroLog parse mode now reuses existing static_apk.cfg and static_features.jsonl when present, instead of exporting them on every run.
+- AndroLog log parsing now supports UTF-16 runtime logs (including UTF-16 files without BOM), fixing false-zero coverage from mood_tag_v3_log.txt-style inputs.
+- ranch_coverage log parsing now also handles UTF-16 logs, so BRANCH= lines are detected correctly without manual conversion.
+- For AndroLog CLI parsing, pass Android platforms directory via -p, for example: C:\\Users\\liqitang\\AppData\\Local\\Android\\Sdk\\platforms.
+- Very small non-zero coverage can still display as  .0% because percentages are formatted to one decimal place.

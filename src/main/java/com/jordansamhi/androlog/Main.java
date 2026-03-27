@@ -111,15 +111,25 @@ public class Main {
                 String explicitCfgPath = options.getOptionValue("cfg-output");
                 String cfgOutputPath = resolveCfgOutputPath(explicitCfgPath, outputJson, logFilePath);
                 String featuresOutputPath = resolveFeaturesOutputPath(cfgOutputPath);
-                try {
-                    Writer.v().pinfo("Exporting CFG and static features...");
-                    CfgExporter cfgExporter = new CfgExporter(includeLibraries, packageName);
-                    cfgExporter.export(cfgOutputPath);
-                    Writer.v().pinfo("Processing CFG written to " + cfgOutputPath);
-                    Writer.v().pinfo("Static features written to " + featuresOutputPath);
-                } catch (Exception cfgError) {
-                    Writer.v().perror("Failed to export processing CFG/static features: " + cfgError.getMessage());
-                    cfgError.printStackTrace();
+                boolean cfgExists = Files.exists(Paths.get(cfgOutputPath));
+                boolean featuresExist = Files.exists(Paths.get(featuresOutputPath));
+                boolean shouldExportCfg = explicitCfgPath != null || !cfgExists || !featuresExist;
+
+                if (shouldExportCfg) {
+                    try {
+                        Writer.v().pinfo("Exporting CFG and static features...");
+                        CfgExporter cfgExporter = new CfgExporter(includeLibraries, packageName);
+                        cfgExporter.export(cfgOutputPath);
+                        Writer.v().pinfo("Processing CFG written to " + cfgOutputPath);
+                        Writer.v().pinfo("Static features written to " + featuresOutputPath);
+                    } catch (Exception cfgError) {
+                        Writer.v().perror("Failed to export processing CFG/static features: " + cfgError.getMessage());
+                        cfgError.printStackTrace();
+                    }
+                } else {
+                    Writer.v().pinfo("Reusing existing CFG and static features.");
+                    Writer.v().pinfo("Processing CFG: " + cfgOutputPath);
+                    Writer.v().pinfo("Static features: " + featuresOutputPath);
                 }
             }
 

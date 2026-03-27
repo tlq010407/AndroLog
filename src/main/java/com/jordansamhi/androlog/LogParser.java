@@ -1,14 +1,28 @@
 package com.jordansamhi.androlog;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class LogParser {
+    private static final String[] COVERAGE_KEYS = {
+            "STATEMENT",
+            "BRANCH",
+            "METHOD",
+            "CLASS",
+            "NATIVE_METHOD",
+            "NATIVE_INVOKE",
+            "ACTIVITY",
+            "SERVICE",
+            "BROADCASTRECEIVER",
+            "CONTENTPROVIDER"
+    };
+
     private final String logIdentifier;
     private final SummaryBuilder summaryBuilder;
     private final SummaryLogBuilder summaryLogBuilder = SummaryLogBuilder.v();
@@ -91,16 +105,76 @@ public class LogParser {
     }
 
     public void parseLogs(String filePath) {
-        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.contains(logIdentifier)) {
+        try {
+            Path logPath = Paths.get(filePath);
+            byte[] raw = Files.readAllBytes(logPath);
+            Charset charset = detectCharset(raw);
+            String content = new String(raw, charset);
+
+            String[] lines = content.split("\\R");
+            for (String line : lines) {
+                if (line.contains(logIdentifier) || containsCoverageMarker(line)) {
                     parseLine(line);
                 }
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    private Charset detectCharset(byte[] raw) {
+        if (raw.length >= 2) {
+            int b0 = raw[0] & 0xFF;
+            int b1 = raw[1] & 0xFF;
+            if (b0 == 0xFF && b1 == 0xFE) {
+                return StandardCharsets.UTF_16LE;
+            }
+            if (b0 == 0xFE && b1 == 0xFF) {
+                return StandardCharsets.UTF_16BE;
+            }
+        }
+
+        int zeroEven = 0;
+        int zeroOdd = 0;
+        int sample = Math.min(raw.length, 8192);
+
+        for (int i = 0; i < sample; i++) {
+            if (raw[i] == 0) {
+                if ((i & 1) == 0) {
+                    zeroEven++;
+                } else {
+                    zeroOdd++;
+                }
+            }
+        }
+
+        // Heuristic for UTF-16 without BOM:
+        // - ASCII-heavy UTF-16LE has many zeros on odd byte positions.
+        // - ASCII-heavy UTF-16BE has many zeros on even byte positions.
+        if (zeroOdd > sample / 16 && zeroOdd > zeroEven * 2) {
+            return StandardCharsets.UTF_16LE;
+        }
+        if (zeroEven > sample / 16 && zeroEven > zeroOdd * 2) {
+            return StandardCharsets.UTF_16BE;
+        }
+
+        for (byte b : raw) {
+            if (b == 0) {
+                // Fallback when null-bytes exist but distribution is unclear.
+                return StandardCharsets.UTF_16LE;
+            }
+        }
+
+        return StandardCharsets.UTF_8;
+    }
+
+    private boolean containsCoverageMarker(String line) {
+        for (String key : COVERAGE_KEYS) {
+            if (line.contains(key + "=") || line.contains(key + ":")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void parseLine(String line) {
@@ -111,7 +185,7 @@ public class LogParser {
 
         switch (logType) {
             case "STATEMENT":
-                int logIndex = line.indexOf(logType + "=");
+                int logIndex = findPayloadStart(line, logType);
                 int firstPipe = line.indexOf('|');
                 if (logIndex >= 0 && firstPipe > logIndex) {
                     if (visitedStatements.contains(line.substring(logIndex, firstPipe))) {
@@ -121,23 +195,26 @@ public class LogParser {
                 break;
 
             case "BRANCH":
-                logIndex = line.indexOf(logType + "=");
+                logIndex = findPayloadStart(line, logType);
                 if (logIndex < 0) {
                     break;
                 }
-                String branchPayload = line.substring(logIndex).trim();
-                if (visitedBranches.contains(branchPayload) || branchBelongsToKnownMethod(branchPayload)) {
-                    summaryLogBuilder.incrementBranch(line);
-                }
+                summaryLogBuilder.incrementBranch(line);
                 break;
 
             case "METHOD":
-                String methodFromLog = line.split(logType + "=")[1];
+                String methodFromLog = extractPayload(line, logType);
+                if (methodFromLog == null) {
+                    break;
+                }
                 matchAndIncrementMethod(methodFromLog, line);
                 break;
 
             case "CLASS":
-                String classFromLog = line.split(logType + "=")[1];
+                String classFromLog = extractPayload(line, logType);
+                if (classFromLog == null) {
+                    break;
+                }
                 String mappedClassFromLog = mappingResolver != null
                         ? mappingResolver.mapClass(classFromLog)
                         : classFromLog;
@@ -147,7 +224,10 @@ public class LogParser {
                 break;
 
             case "NATIVE_METHOD":
-                String nativeMethodFromLog = line.split(logType + "=")[1];
+                String nativeMethodFromLog = extractPayload(line, logType);
+                if (nativeMethodFromLog == null) {
+                    break;
+                }
                 summaryLogBuilder.incrementNativeSignalSeen();
                 if (matchAndIncrementMethod(nativeMethodFromLog, line)) {
                     summaryLogBuilder.incrementNativeSignalMatched();
@@ -155,7 +235,10 @@ public class LogParser {
                 break;
 
             case "NATIVE_INVOKE":
-                String nativeInvokeFromLog = line.split(logType + "=")[1];
+                String nativeInvokeFromLog = extractPayload(line, logType);
+                if (nativeInvokeFromLog == null) {
+                    break;
+                }
                 summaryLogBuilder.incrementNativeSignalSeen();
                 if (matchAndIncrementMethod(nativeInvokeFromLog, line)) {
                     summaryLogBuilder.incrementNativeSignalMatched();
@@ -163,25 +246,29 @@ public class LogParser {
                 break;
 
             case "ACTIVITY":
-                if (visitedActivities.contains(line.split(logType + "=")[1])) {
+                String activityFromLog = extractPayload(line, logType);
+                if (activityFromLog != null && visitedActivities.contains(activityFromLog)) {
                     summaryLogBuilder.incrementActivity(line);
                 }
                 break;
 
             case "SERVICE":
-                if (visitedServices.contains(line.split(logType + "=")[1])) {
+                String serviceFromLog = extractPayload(line, logType);
+                if (serviceFromLog != null && visitedServices.contains(serviceFromLog)) {
                     summaryLogBuilder.incrementService(line);
                 }
                 break;
 
             case "BROADCASTRECEIVER":
-                if (visitedBroadcastReceivers.contains(line.split(logType + "=")[1])) {
+                String receiverFromLog = extractPayload(line, logType);
+                if (receiverFromLog != null && visitedBroadcastReceivers.contains(receiverFromLog)) {
                     summaryLogBuilder.incrementBroadcastReceiver(line);
                 }
                 break;
 
             case "CONTENTPROVIDER":
-                if (visitedContentProviders.contains(line.split(logType + "=")[1])) {
+                String providerFromLog = extractPayload(line, logType);
+                if (providerFromLog != null && visitedContentProviders.contains(providerFromLog)) {
                     summaryLogBuilder.incrementContentProvider(line);
                 }
                 break;
@@ -238,12 +325,45 @@ public class LogParser {
     }
 
     private String getLogType(String line) {
-        Pattern pattern = Pattern.compile("(\\w+?)=");
-        Matcher matcher = pattern.matcher(line);
-        if (matcher.find()) {
-            return matcher.group(1);
+        for (String key : COVERAGE_KEYS) {
+            if (line.contains(key + "=") || line.contains(key + ":")) {
+                return key;
+            }
         }
         return null;
+    }
+
+    private int findPayloadStart(String line, String logType) {
+        int eqIndex = line.indexOf(logType + "=");
+        if (eqIndex >= 0) {
+            return eqIndex;
+        }
+
+        int colonIndex = line.indexOf(logType + ":");
+        if (colonIndex >= 0) {
+            return colonIndex;
+        }
+
+        return -1;
+    }
+
+    private String extractPayload(String line, String logType) {
+        int markerIndex = line.indexOf(logType + "=");
+        int separatorLength = 1;
+
+        if (markerIndex < 0) {
+            markerIndex = line.indexOf(logType + ":");
+        }
+        if (markerIndex < 0) {
+            return null;
+        }
+
+        int start = markerIndex + logType.length() + separatorLength;
+        if (start >= line.length()) {
+            return "";
+        }
+
+        return line.substring(start).trim();
     }
 
     private boolean branchBelongsToKnownMethod(String branchPayload) {
