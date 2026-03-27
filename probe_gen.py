@@ -33,6 +33,12 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 try:
+    from tqdm import tqdm
+except Exception:  # pragma: no cover
+    def tqdm(iterable, **kwargs):  # type: ignore
+        return iterable
+
+try:
     from androguard.misc import AnalyzeAPK
 except Exception as exc:  # pragma: no cover
     raise SystemExit(
@@ -346,7 +352,7 @@ def run(
     generated: List[Tuple[BranchRecord, Optional[MethodContext], str]] = []
 
     misses = 0
-    for rec in selected:
+    for rec in tqdm(selected, desc="Generating prompts", unit="branch"):
         candidates = method_index.get((rec.class_name, rec.method_name), [])
         ctx = extract_method_context(candidates[0], max_instructions) if candidates else None
         if ctx is None:
