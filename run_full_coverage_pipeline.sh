@@ -240,7 +240,7 @@ java -jar "$JAR_PATH" \
     -pa "$LOG_FILE" \
     -j "$COVERAGE_OUTPUT" \
     -cfg "$CFG_OUTPUT" \
-    "${MAPPING_ARGS[@]}"
+    ${MAPPING_ARGS[@]+"${MAPPING_ARGS[@]}"}
 
 log_success "Coverage report generated: $COVERAGE_OUTPUT"
 
@@ -267,7 +267,7 @@ java -jar "$JAR_PATH" \
     -c -m -s -b \
     -pa "$LOG_FILE" \
     -cfg "$CFG_OUTPUT" \
-    "${MAPPING_ARGS[@]}" \
+    ${MAPPING_ARGS[@]+"${MAPPING_ARGS[@]}"} \
     > "$SUMMARY_FILE" 2>&1 || true
 
 # ---------- Final summary ----------
