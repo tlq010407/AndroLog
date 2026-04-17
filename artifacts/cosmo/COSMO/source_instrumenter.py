@@ -119,7 +119,7 @@ def modify_gradle(app_gradle_file_path: str, folder: str):
         # The backup copy of the file is not present, so create it.
         shutil.copyfile(app_gradle_file_path, app_gradle_file_path + '.old')
 
-    with open(app_gradle_file_path, 'r', encoding='utf-8') as gradle_file:
+    with open(app_gradle_file_path, 'r', encoding='utf-8-sig') as gradle_file:
         a_gradle_text = gradle_file.readlines()
 
     debug = False
@@ -166,7 +166,7 @@ def modify_gradle(app_gradle_file_path: str, folder: str):
 
     gradle_wrapper_path = glob.glob(os.path.join(folder, '**', 'gradle-wrapper.properties'), recursive=True)
     if len(gradle_wrapper_path) > 0:
-        with open(gradle_wrapper_path[0], 'r', encoding='utf-8') as gradle_wrapper:
+        with open(gradle_wrapper_path[0], 'r', encoding='utf-8-sig') as gradle_wrapper:
             for line in gradle_wrapper.readlines():
                 if line.find('distributionUrl') >= 0:
                     version = int(re.search('\d+', line).group())
@@ -323,7 +323,7 @@ def parse_android_project(project_dir: str):
         raise RuntimeError('Unable to find "build.gradle" file corresponding to '
                            'Android manifest file "{0}"'.format(main_manifests[0]))
 
-    with open(correct_gradle_file, 'r', encoding='utf-8') as gradle_file:
+    with open(correct_gradle_file, 'r', encoding='utf-8-sig') as gradle_file:
         file_content = gradle_file.read()
         android_plugin_old = re.search(r'apply\s+?plugin\s*?:\s+?'
                                        r'["\'](com\.android\.application|android)["\']',

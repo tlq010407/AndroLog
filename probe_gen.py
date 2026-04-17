@@ -142,7 +142,7 @@ def read_uncovered_file(path: str) -> List[BranchRecord]:
     seen_raw = set()
 
     if path.lower().endswith(".csv"):
-        with open(path, "r", encoding="utf-8", errors="ignore", newline="") as handle:
+        with open(path, "r", encoding="utf-8-sig", errors="ignore", newline="") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
                 branch_value = (row.get("Branch") or "").strip()
@@ -151,7 +151,7 @@ def read_uncovered_file(path: str) -> List[BranchRecord]:
                     records.append(rec)
                     seen_raw.add(rec.raw)
     else:
-        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+        with open(path, "r", encoding="utf-8-sig", errors="ignore") as handle:
             for line in handle:
                 rec = parse_branch_record(line)
                 if rec and rec.raw not in seen_raw:

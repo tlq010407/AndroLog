@@ -36,7 +36,7 @@ FRAMEWORK_PREFIX = (
 def read_cfg(cfg_file):
     branches = set()
 
-    with open(cfg_file, "r", encoding="utf-8", errors="ignore") as f:
+    with open(cfg_file, "r", encoding="utf-8-sig", errors="ignore") as f:
         for line in f:
 
             if line.startswith("BRANCH_IF"):
@@ -58,7 +58,7 @@ def read_logs(log_file):
 
     pattern = re.compile(r'BRANCH=(<.*>)')
 
-    with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+    with open(log_file, "r", encoding="utf-8-sig", errors="ignore") as f:
         for line in f:
 
             m = pattern.search(line)
